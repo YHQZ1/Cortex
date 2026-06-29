@@ -48,6 +48,26 @@ export type RepositorySummary = {
   chunk_count: number;
 };
 
+export type SetupCheck = {
+  ok: boolean;
+  name?: string;
+  url?: string;
+  error?: string | null;
+};
+
+export type SetupStatus = {
+  status: "ready" | "needs_setup";
+  checks: Record<string, SetupCheck>;
+  commands: {
+    embedding_model: string;
+    llm_model: string;
+  };
+};
+
+export async function getSetupStatus(): Promise<SetupStatus> {
+  return request<SetupStatus>("/setup");
+}
+
 export async function listRepositories(): Promise<RepositorySummary[]> {
   return request<RepositorySummary[]>("/repositories");
 }

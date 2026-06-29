@@ -4,9 +4,11 @@ import {
   Clock3,
   FileText,
   Github,
+  Info,
   Loader2,
   MessageSquareText,
   SearchCode,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -16,9 +18,11 @@ import {
   ChunkPreview,
   IngestionJob,
   RepositorySummary,
+  SetupStatus,
   createIngestion,
   getChunkPreview,
   getIngestion,
+  getSetupStatus,
   listRepositories,
   streamAskCortex,
 } from "./lib/api";
@@ -37,6 +41,7 @@ function App() {
   const [job, setJob] = useState<IngestionJob | null>(null);
   const [answer, setAnswer] = useState<AskResponse | null>(null);
   const [preview, setPreview] = useState<ChunkPreview | null>(null);
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [ingesting, setIngesting] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -45,6 +50,7 @@ function App() {
   const activeJob = job?.status === "pending" || job?.status === "running";
 
   useEffect(() => {
+    refreshSetupStatus();
     refreshRepositories();
   }, []);
 
@@ -103,6 +109,14 @@ function App() {
         const first = indexedRepositories[0];
         selectRepository(first.source_ref);
       }
+    } catch (caught) {
+      setError(toErrorMessage(caught));
+    }
+  }
+
+  async function refreshSetupStatus() {
+    try {
+      setSetupStatus(await getSetupStatus());
     } catch (caught) {
       setError(toErrorMessage(caught));
     }
@@ -202,6 +216,8 @@ function App() {
             {error}
           </div>
         )}
+
+        {setupStatus && <SetupPanel setupStatus={setupStatus} />}
 
         <div className="grid flex-1 gap-5 py-5 lg:grid-cols-[360px_1fr]">
           <aside className="space-y-5">
@@ -489,6 +505,68 @@ function StatusBadge({ status }: { status: IngestionJob["status"] }) {
     <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}>
       {status}
     </span>
+  );
+}
+
+function SetupPanel({ setupStatus }: { setupStatus: SetupStatus }) {
+  const checks = [
+    ["API", setupStatus.checks.api],
+    ["Postgres", setupStatus.checks.postgres],
+    ["Redis", setupStatus.checks.redis],
+    ["Qdrant", setupStatus.checks.qdrant],
+    ["Ollama", setupStatus.checks.ollama],
+    ["Embeddings", setupStatus.checks.embedding_model],
+    ["LLM", setupStatus.checks.llm_model],
+  ] as const;
+  const missingCommands = [
+    setupStatus.checks.embedding_model?.ok ? null : setupStatus.commands.embedding_model,
+    setupStatus.checks.llm_model?.ok ? null : setupStatus.commands.llm_model,
+  ].filter((command): command is string => Boolean(command));
+
+  return (
+    <section
+      className={`mt-5 rounded-md border px-4 py-3 ${
+        setupStatus.status === "ready"
+          ? "border-[#b7e2cc] bg-[#f0fbf6]"
+          : "border-[#f3d08a] bg-[#fff8e8]"
+      }`}
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[#1f2933]">
+          {setupStatus.status === "ready" ? (
+            <CheckCircle2 size={17} className="text-[#1f7a4d]" />
+          ) : (
+            <TriangleAlert size={17} className="text-[#a16207]" />
+          )}
+          {setupStatus.status === "ready" ? "Cortex is ready" : "Setup needs attention"}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {checks.map(([label, check]) => (
+            <span
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                check?.ok
+                  ? "border-[#b7e2cc] bg-white text-[#1f7a4d]"
+                  : "border-[#f3d08a] bg-white text-[#92400e]"
+              }`}
+              key={label}
+              title={check?.error ?? undefined}
+            >
+              {check?.ok ? <CheckCircle2 size={12} /> : <Info size={12} />}
+              {label}
+            </span>
+          ))}
+        </div>
+      </div>
+      {missingCommands.length > 0 && (
+        <div className="mt-3 space-y-1 border-t border-[#ead8a4] pt-3 text-xs text-[#70520c]">
+          {missingCommands.map((command) => (
+            <code className="block rounded-md bg-white px-2 py-1 font-mono" key={command}>
+              {command}
+            </code>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
