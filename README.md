@@ -1,187 +1,195 @@
 # Cortex
 
-Cortex is a production-minded RAG backend for turning code repositories into a searchable knowledge base.
+Cortex is a local RAG console for GitHub repositories. It ingests a repo, chunks the source files, stores metadata in Postgres, indexes embeddings in Qdrant, and answers questions with a local Ollama model.
 
-The goal is simple: connect your source repositories, index their files, and ask questions like:
-
-```text
-Where did I implement rate limiting?
-How do my services handle retries?
-Which repos use JWT authentication?
-Show me examples of my database migration pattern.
-```
-
-Cortex is being built as a real backend system first: FastAPI for the API, Postgres for durable state, Redis and Celery for background jobs, Qdrant for vector search, and Ollama for local embeddings and generation.
-
-## Architecture
-
-The planned backend has three main parts:
+The core loop:
 
 ```text
-Client
-  |
-  v
-FastAPI API
-  |
-  |-- Postgres
-  |     durable app state, jobs, repos, files, chunks, query logs
-  |
-  |-- Redis
-  |     Celery broker, caching, rate limits, lightweight locks
-  |
-  |-- Celery workers
-  |     repository ingestion, chunking, embedding, indexing
-  |
-  |-- Qdrant
-  |     vector search over embedded code chunks
-  |
-  |-- Ollama
-        local embedding and LLM generation provider
+GitHub repo
+-> fetch files
+-> filter and chunk source
+-> store files/chunks in Postgres
+-> embed chunks with Ollama
+-> index vectors in Qdrant
+-> retrieve relevant chunks
+-> generate an answer with sources
 ```
 
-The API should stay lightweight. Expensive work such as repository fetching, chunking, embedding, and indexing should run in background workers.
+## Stack
 
-## Target Stack
+| Area            | Technology                  |
+| --------------- | --------------------------- |
+| Web console     | React, Vite, TypeScript     |
+| Styling         | Tailwind CSS v4             |
+| API             | FastAPI                     |
+| Background jobs | Celery                      |
+| Database        | PostgreSQL                  |
+| Broker/cache    | Redis                       |
+| Vector database | Qdrant                      |
+| Embeddings      | Ollama `nomic-embed-text`   |
+| Generation      | Ollama, for example `llama3.1` |
+| Chunking        | LangChain text splitters    |
 
-| Area            | Technology                                |
-| --------------- | ----------------------------------------- |
-| API             | FastAPI                                   |
-| App server      | Uvicorn                                   |
-| Database        | PostgreSQL                                |
-| ORM             | SQLAlchemy 2.x                            |
-| Migrations      | Alembic                                   |
-| Queue           | Celery                                    |
-| Broker/cache    | Redis                                     |
-| Vector database | Qdrant                                    |
-| Embeddings      | Ollama                                    |
-| Generation      | Ollama                                    |
-| RAG utilities   | LangChain, used selectively               |
-| Packaging       | uv                                        |
-| Deployment      | Docker Compose, then container deployment |
-
-LangChain may be used for focused RAG utilities such as text splitting, prompt templates, and output parsing. Cortex should still own the application architecture, job lifecycle, database state, and retrieval pipeline.
-
-## Local Infrastructure
-
-### Prerequisites
+## Prerequisites
 
 - Docker or Docker Desktop
 - Docker Compose
-- Ollama, when embedding/generation work begins
+- Ollama running on the host machine
 
-### Configure Environment
+Pull the local models:
 
-Create a local environment file:
+```bash
+ollama pull nomic-embed-text
+ollama pull llama3.1
+```
+
+## Quickstart
+
+Create your local environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-Important local defaults:
+Start the full stack:
+
+```bash
+docker compose --profile app up -d --build
+```
+
+Open the web console:
+
+```text
+http://localhost:5173
+```
+
+The API is available at:
+
+```text
+http://localhost:8000
+```
+
+## Local Ports
+
+| Service     | Default URL / Port        |
+| ----------- | ------------------------- |
+| Web         | `http://localhost:5173`   |
+| API         | `http://localhost:8000`   |
+| Postgres    | `localhost:5433`          |
+| Redis       | `localhost:6379`          |
+| Qdrant HTTP | `http://localhost:6333`   |
+| Qdrant gRPC | `localhost:6334`          |
+
+`POSTGRES_PORT` defaults to `5433` to avoid conflicting with a host Postgres on `5432`. Inside Docker, services still use `postgres:5432`.
+
+## Using Cortex
+
+1. Choose an indexed GitHub owner and repo from the picker, or enable manual mode and enter a new `owner/repo`.
+2. Click **Ingest repository**.
+3. Wait for the ingestion job to finish.
+4. Ask a question.
+5. Watch the answer stream in.
+6. Click a source card to inspect the exact retrieved chunk.
+
+## API Endpoints
+
+| Endpoint | Purpose |
+| -------- | ------- |
+| `GET /health` | Basic API health |
+| `GET /ready` | Checks Postgres, Redis, and Qdrant |
+| `POST /ingestions` | Queue repo ingestion |
+| `GET /ingestions/{job_id}` | Check ingestion status |
+| `GET /repositories` | List indexed repositories |
+| `POST /search` | Keyword search chunks |
+| `POST /search/semantic` | Vector search chunks |
+| `POST /ask` | Full RAG answer |
+| `POST /ask/stream` | Streaming RAG answer |
+| `GET /chunks/{chunk_id}` | Preview a retrieved source chunk |
+
+## Environment
+
+Important values in `.env.example`:
 
 ```env
+API_PORT=8000
+WEB_PORT=5173
+VITE_API_BASE_URL=http://localhost:8000
+
 POSTGRES_PORT=5433
 REDIS_PORT=6379
 QDRANT_HTTP_PORT=6333
 QDRANT_GRPC_PORT=6334
+
 OLLAMA_URL=http://host.docker.internal:11434
+EMBEDDING_MODEL=nomic-embed-text
+EMBEDDING_DIMENSION=768
+LLM_MODEL=llama3.1
+
+GITHUB_TOKEN=
+WORKER_CONCURRENCY=2
 ```
 
-`POSTGRES_PORT` defaults to `5433` locally to avoid conflicts with an existing Postgres installation on the host machine. Inside Docker, services still connect to Postgres through `postgres:5432`.
+`GITHUB_TOKEN` is optional for public repositories, but useful if you hit GitHub rate limits or need private repository access later.
 
-### Start Infrastructure
+## Development
+
+Run only infrastructure:
 
 ```bash
 docker compose up -d
 ```
 
-This starts:
-
-- Postgres
-- Redis
-- Qdrant
-
-Check status:
+Run the full app stack:
 
 ```bash
-docker compose ps
+docker compose --profile app up -d --build
 ```
 
-Expected local ports:
-
-| Service     | Host URL                |
-| ----------- | ----------------------- |
-| Postgres    | `localhost:5433`        |
-| Redis       | `localhost:6379`        |
-| Qdrant HTTP | `http://localhost:6333` |
-| Qdrant gRPC | `localhost:6334`        |
-
-### Stop Infrastructure
+Build the web app locally:
 
 ```bash
-docker compose down
+cd web
+npm install
+npm run build
 ```
 
-To remove local volumes too:
+Stop services:
 
 ```bash
-docker compose down -v
+docker compose --profile app down
 ```
 
-## Application Services
-
-The future API and worker services are already represented in `docker-compose.yml`, but they are behind the `app` profile because the backend application code has not been scaffolded yet.
-
-Once the API exists, the full stack will run with:
+Remove local volumes:
 
 ```bash
-docker compose --profile app up -d
+docker compose --profile app down -v
 ```
 
-That will start:
-
-- `api`
-- `worker`
-- `postgres`
-- `redis`
-- `qdrant`
-
-## Planned Repository Structure
-
-The project will start small and grow as the backend earns more structure.
+## Project Layout
 
 ```text
 cortex/
 ├── api/
 │   ├── app/
-│   │   ├── main.py
-│   │   ├── config.py
 │   │   ├── routes/
 │   │   ├── schemas/
 │   │   ├── services/
 │   │   ├── providers/
+│   │   ├── repositories/
+│   │   ├── pipeline/
 │   │   ├── db/
 │   │   └── workers/
-│   ├── tests/
 │   ├── Dockerfile
 │   └── pyproject.toml
+├── web/
+│   ├── src/
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   └── package.json
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
 ```
-
-CLI and web UI can be added later, after the backend ingestion and retrieval flow is solid.
-
-## Design Principles
-
-- Keep the API request lifecycle fast.
-- Run ingestion and indexing through background jobs.
-- Store canonical metadata in Postgres.
-- Store vectors and searchable payloads in Qdrant.
-- Make ingestion incremental with file hashes and commit tracking.
-- Keep provider boundaries explicit for GitHub, embeddings, LLMs, and vector storage.
-- Use LangChain as a utility, not as the whole application architecture.
-- Prefer observable, testable pipeline steps over hidden chains.
 
 ## License
 

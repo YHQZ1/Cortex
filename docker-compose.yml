@@ -1,6 +1,22 @@
 name: cortex
 
 services:
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "${WEB_PORT:-5173}:80"
+    depends_on:
+      - api
+    profiles:
+      - app
+    networks:
+      - cortex_network
+    restart: unless-stopped
+
   api:
     build:
       context: ./api

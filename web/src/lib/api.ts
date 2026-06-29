@@ -28,6 +28,16 @@ export type AskResponse = {
   sources: AskSource[];
 };
 
+export type ChunkPreview = {
+  chunk_id: string;
+  repository: string;
+  path: string;
+  language: string | null;
+  start_line: number;
+  end_line: number;
+  content: string;
+};
+
 export type RepositorySummary = {
   source_type: string;
   source_ref: string;
@@ -54,6 +64,10 @@ export async function createIngestion(sourceRef: string): Promise<IngestionJob> 
 
 export async function getIngestion(jobId: string): Promise<IngestionJob> {
   return request<IngestionJob>(`/ingestions/${jobId}`);
+}
+
+export async function getChunkPreview(chunkId: string): Promise<ChunkPreview> {
+  return request<ChunkPreview>(`/chunks/${chunkId}`);
 }
 
 export async function askCortex(params: {

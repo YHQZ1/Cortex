@@ -1,11 +1,23 @@
-import { Brain, CheckCircle2, Clock3, Github, Loader2, MessageSquareText, SearchCode } from "lucide-react";
+import {
+  Brain,
+  CheckCircle2,
+  Clock3,
+  FileText,
+  Github,
+  Loader2,
+  MessageSquareText,
+  SearchCode,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
   AskResponse,
+  ChunkPreview,
   IngestionJob,
   RepositorySummary,
   createIngestion,
+  getChunkPreview,
   getIngestion,
   listRepositories,
   streamAskCortex,
@@ -24,6 +36,8 @@ function App() {
   const [limit, setLimit] = useState(3);
   const [job, setJob] = useState<IngestionJob | null>(null);
   const [answer, setAnswer] = useState<AskResponse | null>(null);
+  const [preview, setPreview] = useState<ChunkPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [ingesting, setIngesting] = useState(false);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +119,7 @@ function App() {
   async function handleIngest() {
     setError(null);
     setAnswer(null);
+    setPreview(null);
     setIngesting(true);
     try {
       setJob(await createIngestion(repository.trim()));
@@ -118,6 +133,7 @@ function App() {
 
   async function handleAsk() {
     setError(null);
+    setPreview(null);
     setAnswer({ question: question.trim(), answer: "", sources: [] });
     setAsking(true);
     try {
@@ -144,6 +160,18 @@ function App() {
       setError(toErrorMessage(caught));
     } finally {
       setAsking(false);
+    }
+  }
+
+  async function handleSourcePreview(chunkId: string) {
+    setError(null);
+    setPreviewLoading(true);
+    try {
+      setPreview(await getChunkPreview(chunkId));
+    } catch (caught) {
+      setError(toErrorMessage(caught));
+    } finally {
+      setPreviewLoading(false);
     }
   }
 
@@ -379,9 +407,11 @@ function App() {
                 {answer?.sources.length ? (
                   <div className="space-y-3">
                     {answer.sources.map((source, index) => (
-                      <div
-                        className="rounded-md border border-[#e3ded6] bg-[#faf9f6] p-3 text-sm"
+                      <button
+                        className="w-full rounded-md border border-[#e3ded6] bg-[#faf9f6] p-3 text-left text-sm transition hover:border-[#2f6f6d] hover:bg-white"
                         key={source.chunk_id}
+                        onClick={() => handleSourcePreview(source.chunk_id)}
+                        type="button"
                       >
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <span className="font-semibold">Source {index + 1}</span>
@@ -393,12 +423,49 @@ function App() {
                         <div className="mt-2 text-xs text-[#697586]">
                           {source.language ?? "unknown"} · {source.repository}
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 ) : (
                   <div className="rounded-md border border-dashed border-[#d8d1c5] p-4 text-sm leading-6 text-[#697586]">
                     Retrieved source references will appear here.
+                  </div>
+                )}
+
+                {(preview || previewLoading) && (
+                  <div className="mt-4 rounded-md border border-[#d8d1c5] bg-white">
+                    <div className="flex items-start justify-between gap-3 border-b border-[#e3ded6] p-3">
+                      <div className="min-w-0">
+                        <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
+                          <FileText size={15} />
+                          Source preview
+                        </div>
+                        {preview && (
+                          <div className="break-words font-mono text-xs leading-5 text-[#334e68]">
+                            {preview.path}:{preview.start_line}-{preview.end_line}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        className="rounded-md p-1 text-[#697586] transition hover:bg-[#f5f2ec] hover:text-[#1f2933]"
+                        onClick={() => setPreview(null)}
+                        type="button"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                    {previewLoading ? (
+                      <div className="flex min-h-32 items-center justify-center p-4 text-sm text-[#52606d]">
+                        <Loader2 className="mr-2 animate-spin" size={16} />
+                        Loading source...
+                      </div>
+                    ) : (
+                      preview && (
+                        <pre className="max-h-96 overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-5 text-[#1f2933]">
+                          {preview.content}
+                        </pre>
+                      )
+                    )}
                   </div>
                 )}
               </aside>
