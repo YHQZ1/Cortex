@@ -2,7 +2,7 @@
 
 Cortex is a local RAG console for GitHub repositories. It ingests a repo, chunks the source files, stores metadata in Postgres, indexes embeddings in Qdrant, and answers questions with a local Ollama model.
 
-It can run fully on your machine: GitHub fetching, background ingestion, vector search, answer generation, and the React console all sit behind Docker Compose, while Ollama runs on the host.
+It runs on your machine: GitHub fetching, background ingestion, vector search, answer generation, and the React console run through Docker Compose, while Ollama runs on the host operating system.
 
 The core loop:
 
@@ -34,9 +34,17 @@ GitHub repo
 
 ## Prerequisites
 
-- Docker or Docker Desktop
-- Docker Compose
-- Ollama running on the host machine
+- Docker Engine with Docker Compose, or Docker Desktop
+- Ollama installed and running on the host machine
+- Git, if you are cloning the repository
+
+Install Ollama from `https://ollama.com/download`, then start it before running Cortex.
+
+On macOS and Windows, the Ollama desktop app usually starts the local server automatically. On Linux, or if the server is not already running, start it manually:
+
+```bash
+ollama serve
+```
 
 Pull the local models:
 
@@ -44,6 +52,24 @@ Pull the local models:
 ollama pull nomic-embed-text
 ollama pull llama3.1
 ```
+
+## Compatibility
+
+| Platform | Status | Notes |
+| -------- | ------ | ----- |
+| macOS with Docker Desktop | Supported | Recommended local path. Cortex containers call host Ollama through `host.docker.internal`. |
+| Windows with Docker Desktop + WSL 2 backend | Supported | Run the commands from PowerShell, Windows Terminal, or WSL. Ollama must be reachable on the host at port `11434`. |
+| Linux with Docker Engine | Supported | Compose maps `host.docker.internal` to Docker's host gateway. Requires a Docker version that supports `host-gateway`. |
+| Linux with rootless Docker | Not fully verified | Networking to host Ollama may require setting `OLLAMA_URL` manually. |
+| Remote server / VPS | Supported with setup | Install Ollama on the same host or point `OLLAMA_URL` to a reachable Ollama server. Expose ports carefully. |
+
+Cortex expects Ollama to be reachable from inside the API and worker containers at:
+
+```env
+OLLAMA_URL=http://host.docker.internal:11434
+```
+
+If your Docker setup cannot resolve `host.docker.internal`, set `OLLAMA_URL` in `.env` to an address reachable from containers.
 
 ## Quickstart
 
@@ -71,6 +97,31 @@ The API is available at:
 http://localhost:8000
 ```
 
+If you do not have `make`, run the same setup manually:
+
+```bash
+cp .env.example .env
+ollama pull nomic-embed-text
+ollama pull llama3.1
+docker compose --profile app up -d --build
+```
+
+For PowerShell on Windows:
+
+```powershell
+Copy-Item .env.example .env
+ollama pull nomic-embed-text
+ollama pull llama3.1
+docker compose --profile app up -d --build
+```
+
+Verify the stack:
+
+```bash
+curl http://localhost:8000/ready
+curl http://localhost:8000/setup
+```
+
 ## Local Ports
 
 | Service     | Default URL / Port        |
@@ -86,7 +137,7 @@ http://localhost:8000
 
 ## Using Cortex
 
-1. Choose an indexed GitHub owner and repo from the picker, or enable manual mode and enter a new `owner/repo`.
+1. Choose an indexed GitHub owner and repo from the picker, or enable manual mode and paste a GitHub repository URL.
 2. Click **Ingest repository**.
 3. Wait for the ingestion job to finish.
 4. Ask a repository question in **Repository** mode.
@@ -95,6 +146,16 @@ http://localhost:8000
 7. Click a source card to inspect the exact retrieved chunk.
 
 Repository mode is intentionally grounded. If the indexed codebase does not contain enough context, Cortex should say that instead of stretching into a generic answer.
+
+Manual repository input accepts these formats and sends clean `owner/repo` values to the backend:
+
+```text
+owner/repo
+https://github.com/owner/repo
+https://github.com/owner/repo.git
+github.com/owner/repo
+git@github.com:owner/repo.git
+```
 
 ## API Endpoints
 
@@ -189,6 +250,41 @@ Stop it with:
 ```bash
 make prod-down
 ```
+
+Without `make`:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml down
+```
+
+The production-style Compose file still expects Ollama to run on the host machine. It does not package Ollama or model files inside the Cortex containers.
+
+## Troubleshooting
+
+Check container health:
+
+```bash
+docker compose ps
+curl http://localhost:8000/ready
+curl http://localhost:8000/setup
+```
+
+If `/setup` says Ollama is not reachable:
+
+```bash
+ollama serve
+ollama list
+```
+
+If the models are missing:
+
+```bash
+ollama pull nomic-embed-text
+ollama pull llama3.1
+```
+
+If Linux containers cannot reach host Ollama, edit `.env` and set `OLLAMA_URL` to an address reachable from Docker containers.
 
 ## Project Layout
 
