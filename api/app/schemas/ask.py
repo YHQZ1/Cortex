@@ -7,6 +7,7 @@ class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     repository: str | None = Field(default=None, max_length=512)
     limit: int = Field(default=5, ge=1, le=12)
+    mode: str = Field(default="repository", pattern="^(repository|general)$")
 
     @field_validator("question")
     @classmethod

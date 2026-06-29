@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text"
     embedding_dimension: int = 768
     qdrant_collection: str = "cortex_chunks"
-    llm_model: str = "qwen2.5-coder:7b"
+    llm_model: str = "llama3.1"
     worker_concurrency: int = 2
     github_token: str | None = None
     github_api_url: str = "https://api.github.com"

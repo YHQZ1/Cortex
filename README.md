@@ -2,6 +2,8 @@
 
 Cortex is a local RAG console for GitHub repositories. It ingests a repo, chunks the source files, stores metadata in Postgres, indexes embeddings in Qdrant, and answers questions with a local Ollama model.
 
+It can run fully on your machine: GitHub fetching, background ingestion, vector search, answer generation, and the React console all sit behind Docker Compose, while Ollama runs on the host.
+
 The core loop:
 
 ```text
@@ -11,8 +13,8 @@ GitHub repo
 -> store files/chunks in Postgres
 -> embed chunks with Ollama
 -> index vectors in Qdrant
--> retrieve relevant chunks
--> generate an answer with sources
+-> retrieve relevant chunks with hybrid search
+-> generate an answer with source previews
 ```
 
 ## Stack
@@ -45,16 +47,16 @@ ollama pull llama3.1
 
 ## Quickstart
 
-Create your local environment file:
+Create your local environment file and pull the local models:
 
 ```bash
-cp .env.example .env
+make setup
 ```
 
 Start the full stack:
 
 ```bash
-docker compose --profile app up -d --build
+make up
 ```
 
 Open the web console:
@@ -87,9 +89,12 @@ http://localhost:8000
 1. Choose an indexed GitHub owner and repo from the picker, or enable manual mode and enter a new `owner/repo`.
 2. Click **Ingest repository**.
 3. Wait for the ingestion job to finish.
-4. Ask a question.
-5. Watch the answer stream in.
-6. Click a source card to inspect the exact retrieved chunk.
+4. Ask a repository question in **Repository** mode.
+5. Switch to **General** mode for normal LLM questions that should not use repo context.
+6. Watch the answer stream in.
+7. Click a source card to inspect the exact retrieved chunk.
+
+Repository mode is intentionally grounded. If the indexed codebase does not contain enough context, Cortex should say that instead of stretching into a generic answer.
 
 ## API Endpoints
 
@@ -97,11 +102,15 @@ http://localhost:8000
 | -------- | ------- |
 | `GET /health` | Basic API health |
 | `GET /ready` | Checks Postgres, Redis, and Qdrant |
+| `GET /setup` | Checks local setup, Ollama, embedding model, and LLM model |
 | `POST /ingestions` | Queue repo ingestion |
 | `GET /ingestions/{job_id}` | Check ingestion status |
 | `GET /repositories` | List indexed repositories |
+| `POST /repositories/{source_ref}/reindex` | Reindex an existing repository |
+| `DELETE /repositories/{source_ref}` | Delete indexed repository metadata, chunks, and vectors |
 | `POST /search` | Keyword search chunks |
 | `POST /search/semantic` | Vector search chunks |
+| `POST /search/hybrid` | Combined vector and keyword/path search |
 | `POST /ask` | Full RAG answer |
 | `POST /ask/stream` | Streaming RAG answer |
 | `GET /chunks/{chunk_id}` | Preview a retrieved source chunk |
@@ -136,13 +145,13 @@ WORKER_CONCURRENCY=2
 Run only infrastructure:
 
 ```bash
-docker compose up -d
+make infra
 ```
 
 Run the full app stack:
 
 ```bash
-docker compose --profile app up -d --build
+make up
 ```
 
 Build the web app locally:
@@ -156,13 +165,29 @@ npm run build
 Stop services:
 
 ```bash
-docker compose --profile app down
+make down
 ```
 
 Remove local volumes:
 
 ```bash
 docker compose --profile app down -v
+```
+
+## Production-Style Compose
+
+The default `docker-compose.yml` is optimized for development: the API code is bind-mounted and Uvicorn runs with reload.
+
+For a closer-to-release local run, use the production-style Compose file. It builds the API and web images, skips source bind mounts, and runs Uvicorn without reload:
+
+```bash
+make prod-up
+```
+
+Stop it with:
+
+```bash
+make prod-down
 ```
 
 ## Project Layout
@@ -187,6 +212,8 @@ cortex/
 │   ├── nginx.conf
 │   └── package.json
 ├── docker-compose.yml
+├── docker-compose.prod.yml
+├── Makefile
 ├── .env.example
 └── README.md
 ```

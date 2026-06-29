@@ -28,6 +28,8 @@ export type AskResponse = {
   sources: AskSource[];
 };
 
+export type AskMode = "repository" | "general";
+
 export type ChunkPreview = {
   chunk_id: string;
   repository: string;
@@ -106,6 +108,7 @@ export async function askCortex(params: {
   question: string;
   repository?: string;
   limit: number;
+  mode: AskMode;
 }): Promise<AskResponse> {
   return request<AskResponse>("/ask", {
     method: "POST",
@@ -113,6 +116,7 @@ export async function askCortex(params: {
       question: params.question,
       repository: params.repository || null,
       limit: params.limit,
+      mode: params.mode,
     }),
   });
 }
@@ -121,6 +125,7 @@ export async function streamAskCortex(params: {
   question: string;
   repository?: string;
   limit: number;
+  mode: AskMode;
   onSources: (sources: AskSource[]) => void;
   onToken: (token: string) => void;
 }): Promise<void> {
@@ -133,6 +138,7 @@ export async function streamAskCortex(params: {
       question: params.question,
       repository: params.repository || null,
       limit: params.limit,
+      mode: params.mode,
     }),
   });
 

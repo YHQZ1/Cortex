@@ -16,6 +16,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  AskMode,
   AskResponse,
   ChunkPreview,
   IngestionJob,
@@ -41,6 +42,7 @@ function App() {
   const [manualRepository, setManualRepository] = useState(DEFAULT_REPOSITORY);
   const [manualMode, setManualMode] = useState(false);
   const [question, setQuestion] = useState("How does ESX use events and message streaming?");
+  const [askMode, setAskMode] = useState<AskMode>("repository");
   const [limit, setLimit] = useState(3);
   const [job, setJob] = useState<IngestionJob | null>(null);
   const [answer, setAnswer] = useState<AskResponse | null>(null);
@@ -210,6 +212,7 @@ function App() {
         question: question.trim(),
         repository: repository.trim(),
         limit,
+        mode: askMode,
         onSources: (sources) => {
           setAnswer((current) => ({
             question: current?.question ?? question.trim(),
@@ -447,6 +450,30 @@ function App() {
                 <MessageSquareText size={19} />
                 <h2 className="text-base font-semibold">Ask Cortex</h2>
               </div>
+              <div className="mb-3 inline-grid grid-cols-2 rounded-md border border-[#c9c0b3] bg-[#faf9f6] p-1">
+                <button
+                  className={`h-8 rounded px-3 text-xs font-semibold transition ${
+                    askMode === "repository"
+                      ? "bg-white text-[#1f2933] shadow-sm"
+                      : "text-[#697586] hover:text-[#1f2933]"
+                  }`}
+                  onClick={() => setAskMode("repository")}
+                  type="button"
+                >
+                  Repository
+                </button>
+                <button
+                  className={`h-8 rounded px-3 text-xs font-semibold transition ${
+                    askMode === "general"
+                      ? "bg-white text-[#1f2933] shadow-sm"
+                      : "text-[#697586] hover:text-[#1f2933]"
+                  }`}
+                  onClick={() => setAskMode("general")}
+                  type="button"
+                >
+                  General
+                </button>
+              </div>
               <textarea
                 className="min-h-28 w-full resize-y rounded-md border border-[#c9c0b3] bg-[#faf9f6] p-3 text-sm leading-6 outline-none transition focus:border-[#2f6f6d] focus:bg-white"
                 value={question}
@@ -456,7 +483,7 @@ function App() {
               <div className="mt-3 flex justify-end">
                 <button
                   className="inline-flex h-10 min-w-28 items-center justify-center gap-2 rounded-md bg-[#2f6f6d] px-4 text-sm font-semibold text-white transition hover:bg-[#255c5a] disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={asking || !question.trim() || !repository.trim()}
+                  disabled={asking || !question.trim() || (askMode === "repository" && !repository.trim())}
                   onClick={handleAsk}
                 >
                   {asking && <Loader2 className="animate-spin" size={16} />}
@@ -496,9 +523,13 @@ function App() {
                   </div>
                 ) : (
                   <div className="flex h-full min-h-80 items-center justify-center text-center text-sm leading-6 text-[#697586]">
-                    Ask a question after ingesting a repository.
+                    {askMode === "repository"
+                      ? "Ask a question after ingesting a repository."
+                      : "Ask a general question without repository grounding."}
                     <br />
-                    The answer will appear here with citations.
+                    {askMode === "repository"
+                      ? "The answer will appear here with citations."
+                      : "The answer will appear here without sources."}
                   </div>
                 )}
               </article>
@@ -529,7 +560,9 @@ function App() {
                   </div>
                 ) : (
                   <div className="rounded-md border border-dashed border-[#d8d1c5] p-4 text-sm leading-6 text-[#697586]">
-                    Retrieved source references will appear here.
+                    {askMode === "repository"
+                      ? "Retrieved source references will appear here."
+                      : "General mode does not use repository sources."}
                   </div>
                 )}
 

@@ -55,7 +55,12 @@ class RagService:
         question: str,
         repository: str | None,
         limit: int,
+        mode: str = "repository",
     ) -> AskResponse:
+        if mode == "general":
+            answer = await self._llm.generate_general_answer(question=question)
+            return AskResponse(question=question, answer=answer, sources=[])
+
         chunks = await self._retrieve_chunks(
             session,
             question=question,
@@ -96,7 +101,15 @@ class RagService:
         question: str,
         repository: str | None,
         limit: int,
+        mode: str = "repository",
     ) -> AsyncIterator[str]:
+        if mode == "general":
+            yield _stream_event("sources", sources=[])
+            async for token in self._llm.stream_general_answer(question=question):
+                yield _stream_event("token", content=token)
+            yield _stream_event("done")
+            return
+
         chunks = await self._retrieve_chunks(
             session,
             question=question,

@@ -20,6 +20,7 @@ async def ask(
         question=payload.question,
         repository=payload.repository,
         limit=payload.limit,
+        mode=payload.mode,
     )
 
 
@@ -34,6 +35,7 @@ async def ask_stream(
             question=payload.question,
             repository=payload.repository,
             limit=payload.limit,
+            mode=payload.mode,
         ),
         media_type="application/x-ndjson",
     )
