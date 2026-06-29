@@ -28,6 +28,20 @@ export type AskResponse = {
   sources: AskSource[];
 };
 
+export type RepositorySummary = {
+  source_type: string;
+  source_ref: string;
+  name: string;
+  default_branch: string | null;
+  last_indexed_at: string | null;
+  file_count: number;
+  chunk_count: number;
+};
+
+export async function listRepositories(): Promise<RepositorySummary[]> {
+  return request<RepositorySummary[]>("/repositories");
+}
+
 export async function createIngestion(sourceRef: string): Promise<IngestionJob> {
   return request<IngestionJob>("/ingestions", {
     method: "POST",

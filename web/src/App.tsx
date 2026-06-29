@@ -1,12 +1,25 @@
 import { Brain, CheckCircle2, Clock3, Github, Loader2, MessageSquareText, SearchCode } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { AskResponse, IngestionJob, createIngestion, getIngestion, streamAskCortex } from "./lib/api";
+import {
+  AskResponse,
+  IngestionJob,
+  RepositorySummary,
+  createIngestion,
+  getIngestion,
+  listRepositories,
+  streamAskCortex,
+} from "./lib/api";
 
 const DEFAULT_REPOSITORY = "YHQZ1/ESX";
 
 function App() {
   const [repository, setRepository] = useState(DEFAULT_REPOSITORY);
+  const [repositories, setRepositories] = useState<RepositorySummary[]>([]);
+  const [owner, setOwner] = useState(DEFAULT_REPOSITORY.split("/")[0]);
+  const [repoName, setRepoName] = useState(DEFAULT_REPOSITORY.split("/")[1]);
+  const [manualRepository, setManualRepository] = useState(DEFAULT_REPOSITORY);
+  const [manualMode, setManualMode] = useState(false);
   const [question, setQuestion] = useState("How does ESX use events and message streaming?");
   const [limit, setLimit] = useState(3);
   const [job, setJob] = useState<IngestionJob | null>(null);
@@ -16,6 +29,10 @@ function App() {
   const [error, setError] = useState<string | null>(null);
 
   const activeJob = job?.status === "pending" || job?.status === "running";
+
+  useEffect(() => {
+    refreshRepositories();
+  }, []);
 
   useEffect(() => {
     if (!job || !activeJob) {
@@ -33,6 +50,12 @@ function App() {
     return () => window.clearInterval(interval);
   }, [activeJob, job]);
 
+  useEffect(() => {
+    if (job?.status === "succeeded") {
+      refreshRepositories();
+    }
+  }, [job?.status]);
+
   const jobTone = useMemo(() => {
     if (!job) return "idle";
     if (job.status === "succeeded") return "success";
@@ -40,12 +63,52 @@ function App() {
     return "working";
   }, [job]);
 
+  const owners = useMemo(
+    () => Array.from(new Set(repositories.map((item) => item.source_ref.split("/")[0]))).sort(),
+    [repositories],
+  );
+
+  const ownerRepositories = useMemo(
+    () =>
+      repositories
+        .filter((item) => item.source_ref.startsWith(`${owner}/`))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [owner, repositories],
+  );
+
+  const selectedRepository = useMemo(
+    () => repositories.find((item) => item.source_ref === repository) ?? null,
+    [repositories, repository],
+  );
+
+  async function refreshRepositories() {
+    try {
+      const indexedRepositories = await listRepositories();
+      setRepositories(indexedRepositories);
+      if (indexedRepositories.length > 0 && repository === DEFAULT_REPOSITORY) {
+        const first = indexedRepositories[0];
+        selectRepository(first.source_ref);
+      }
+    } catch (caught) {
+      setError(toErrorMessage(caught));
+    }
+  }
+
+  function selectRepository(sourceRef: string) {
+    const [nextOwner, nextRepoName = ""] = sourceRef.split("/");
+    setRepository(sourceRef);
+    setOwner(nextOwner);
+    setRepoName(nextRepoName);
+    setManualRepository(sourceRef);
+  }
+
   async function handleIngest() {
     setError(null);
     setAnswer(null);
     setIngesting(true);
     try {
       setJob(await createIngestion(repository.trim()));
+      await refreshRepositories();
     } catch (caught) {
       setError(toErrorMessage(caught));
     } finally {
@@ -126,13 +189,86 @@ function App() {
               <label className="text-xs font-medium uppercase text-[#697586]" htmlFor="repository">
                 GitHub source
               </label>
-              <input
-                id="repository"
-                className="mt-2 h-11 w-full rounded-md border border-[#c9c0b3] bg-[#faf9f6] px-3 text-sm outline-none transition focus:border-[#2f6f6d] focus:bg-white"
-                value={repository}
-                onChange={(event) => setRepository(event.target.value)}
-                placeholder="owner/repo"
-              />
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <select
+                  className="h-11 rounded-md border border-[#c9c0b3] bg-[#faf9f6] px-3 text-sm outline-none transition focus:border-[#2f6f6d] focus:bg-white disabled:opacity-60"
+                  disabled={manualMode || owners.length === 0}
+                  value={owner}
+                  onChange={(event) => {
+                    const nextOwner = event.target.value;
+                    const firstRepo = repositories.find((item) =>
+                      item.source_ref.startsWith(`${nextOwner}/`),
+                    );
+                    if (firstRepo) {
+                      selectRepository(firstRepo.source_ref);
+                    }
+                  }}
+                >
+                  {owners.length === 0 ? (
+                    <option value={owner}>owner</option>
+                  ) : (
+                    owners.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))
+                  )}
+                </select>
+
+                <select
+                  className="h-11 rounded-md border border-[#c9c0b3] bg-[#faf9f6] px-3 text-sm outline-none transition focus:border-[#2f6f6d] focus:bg-white disabled:opacity-60"
+                  disabled={manualMode || ownerRepositories.length === 0}
+                  value={repository}
+                  onChange={(event) => selectRepository(event.target.value)}
+                >
+                  {ownerRepositories.length === 0 ? (
+                    <option value={repoName}>repo</option>
+                  ) : (
+                    ownerRepositories.map((item) => (
+                      <option key={item.source_ref} value={item.source_ref}>
+                        {item.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <label className="mt-3 flex items-center gap-2 text-xs font-medium text-[#697586]">
+                <input
+                  checked={manualMode}
+                  className="accent-[#2f6f6d]"
+                  type="checkbox"
+                  onChange={(event) => {
+                    setManualMode(event.target.checked);
+                    if (!event.target.checked) {
+                      selectRepository(repository);
+                    }
+                  }}
+                />
+                Enter a new repo manually
+              </label>
+
+              {manualMode && (
+                <input
+                  id="repository"
+                  className="mt-2 h-11 w-full rounded-md border border-[#c9c0b3] bg-[#faf9f6] px-3 text-sm outline-none transition focus:border-[#2f6f6d] focus:bg-white"
+                  value={manualRepository}
+                  onChange={(event) => {
+                    setManualRepository(event.target.value);
+                    setRepository(event.target.value);
+                  }}
+                  placeholder="owner/repo"
+                />
+              )}
+
+              {selectedRepository && (
+                <div className="mt-3 rounded-md border border-[#e3ded6] bg-[#faf9f6] px-3 py-2 text-xs leading-5 text-[#52606d]">
+                  {selectedRepository.file_count} files · {selectedRepository.chunk_count} chunks
+                  {selectedRepository.default_branch
+                    ? ` · ${selectedRepository.default_branch}`
+                    : ""}
+                </div>
+              )}
 
               <button
                 className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#1f2933] px-4 text-sm font-semibold text-white transition hover:bg-[#111827] disabled:cursor-not-allowed disabled:opacity-60"
