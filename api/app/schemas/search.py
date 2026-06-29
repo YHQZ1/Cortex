@@ -31,6 +31,15 @@ class SearchResult(BaseModel):
     content: str
 
 
+class SemanticSearchResult(SearchResult):
+    score: float
+
+
 class SearchResponse(BaseModel):
     query: str
     results: list[SearchResult]
+
+
+class SemanticSearchResponse(BaseModel):
+    query: str
+    results: list[SemanticSearchResult]

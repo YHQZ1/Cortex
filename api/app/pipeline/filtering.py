@@ -28,6 +28,12 @@ SKIPPED_FILENAMES = {
     "yarn.lock",
 }
 
+SKIPPED_SUFFIXES = {
+    ".gen.go",
+    ".pb.go",
+    "_grpc.pb.go",
+}
+
 ALLOWED_EXTENSIONS = {
     ".css",
     ".go",
@@ -76,6 +82,9 @@ def is_indexable_document(document: SourceDocument) -> bool:
         return False
 
     if path.name in SKIPPED_FILENAMES:
+        return False
+
+    if any(path.name.endswith(suffix) for suffix in SKIPPED_SUFFIXES):
         return False
 
     if path.suffix.lower() not in ALLOWED_EXTENSIONS:

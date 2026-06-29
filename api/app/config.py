@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     app_name: str = "Cortex API"
     app_env: Literal["local", "test", "staging", "production"] = "local"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     database_url: str = Field(
         default="postgresql+asyncpg://cortex:cortex@postgres:5432/cortex",
@@ -27,6 +28,8 @@ class Settings(BaseSettings):
     )
 
     embedding_model: str = "nomic-embed-text"
+    embedding_dimension: int = 768
+    qdrant_collection: str = "cortex_chunks"
     llm_model: str = "qwen2.5-coder:7b"
     worker_concurrency: int = 2
     github_token: str | None = None

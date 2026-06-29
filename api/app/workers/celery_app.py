@@ -15,6 +15,7 @@ from app.repositories.ingestion_jobs import (
     mark_ingestion_job_running,
     mark_ingestion_job_succeeded,
 )
+from app.services.vector_indexing import VectorIndexingService
 
 settings = get_settings()
 
@@ -73,6 +74,8 @@ async def _process_ingestion_job(job_id: UUID) -> str:
                 documents=documents,
             )
 
+        vector_count = await VectorIndexingService(settings).index_chunks(stats["chunks"])
+
         async with async_session() as session:
             latest_job = await get_ingestion_job(session, job_id)
             if latest_job is None:
@@ -84,7 +87,8 @@ async def _process_ingestion_job(job_id: UUID) -> str:
                     f"Ingested {source_type} source {source_ref}: "
                     f"{stats['indexed_files']} files, "
                     f"{stats['indexed_chunks']} chunks, "
-                    f"{stats['skipped_files']} skipped."
+                    f"{stats['skipped_files']} skipped, "
+                    f"{vector_count} vectors indexed."
                 ),
             )
         return "succeeded"

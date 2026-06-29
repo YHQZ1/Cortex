@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -13,6 +14,18 @@ from app.pipeline.documents import SourceDocument
 from app.utils.hashing import sha256_text
 
 
+@dataclass(frozen=True)
+class IndexedChunk:
+    chunk_id: UUID
+    repository_id: UUID
+    repository: str
+    path: str
+    language: str | None
+    start_line: int
+    end_line: int
+    content: str
+
+
 async def ingest_documents(
     session: AsyncSession,
     *,
@@ -22,7 +35,7 @@ async def ingest_documents(
     repository_name: str,
     default_branch: str | None = None,
     documents: list[SourceDocument],
-) -> dict[str, int]:
+) -> dict:
     repository = await upsert_repository(
         session,
         source_type=source_type,
@@ -36,6 +49,7 @@ async def ingest_documents(
     indexed_chunks = 0
     skipped_files = 0
     indexed_paths: set[str] = set()
+    chunk_records: list[tuple[Chunk, SourceFile]] = []
 
     for document in documents:
         if not is_indexable_document(document):
@@ -46,22 +60,24 @@ async def ingest_documents(
         source_file = await upsert_source_file(session, repository_id=repository.id, document=document)
         await session.execute(delete(Chunk).where(Chunk.source_file_id == source_file.id))
 
-        for chunk in chunker.split(document.content):
-            session.add(
-                Chunk(
-                    repository_id=repository.id,
-                    source_file_id=source_file.id,
-                    ingestion_job_id=ingestion_job_id,
-                    ordinal=chunk.ordinal,
-                    start_line=chunk.start_line,
-                    end_line=chunk.end_line,
-                    content=chunk.content,
-                    content_hash=sha256_text(chunk.content),
-                )
+        for document_chunk in chunker.split(document.content):
+            chunk = Chunk(
+                repository_id=repository.id,
+                source_file_id=source_file.id,
+                ingestion_job_id=ingestion_job_id,
+                ordinal=document_chunk.ordinal,
+                start_line=document_chunk.start_line,
+                end_line=document_chunk.end_line,
+                content=document_chunk.content,
+                content_hash=sha256_text(document_chunk.content),
             )
+            session.add(chunk)
+            chunk_records.append((chunk, source_file))
             indexed_chunks += 1
 
         indexed_files += 1
+
+    await session.flush()
 
     stale_files_query = delete(SourceFile).where(SourceFile.repository_id == repository.id)
     if indexed_paths:
@@ -71,10 +87,26 @@ async def ingest_documents(
     repository.last_indexed_at = datetime.now(UTC)
     await session.commit()
 
+    chunks = [
+        IndexedChunk(
+            chunk_id=chunk.id,
+            repository_id=repository.id,
+            repository=source_ref,
+            path=source_file.path,
+            language=source_file.language,
+            start_line=chunk.start_line,
+            end_line=chunk.end_line,
+            content=chunk.content,
+        )
+        for chunk, source_file in chunk_records
+    ]
+
     return {
         "indexed_files": indexed_files,
         "indexed_chunks": indexed_chunks,
         "skipped_files": skipped_files,
+        "repository_id": repository.id,
+        "chunks": chunks,
     }
 
 
