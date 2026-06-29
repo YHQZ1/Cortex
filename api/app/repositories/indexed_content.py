@@ -9,7 +9,7 @@ from app.models.chunk import Chunk
 from app.models.repository import Repository
 from app.models.source_file import SourceFile
 from app.pipeline.chunking import DocumentChunker
-from app.pipeline.filtering import infer_language, is_indexable_document
+from app.pipeline.filtering import get_document_skip_reason, infer_language
 from app.pipeline.documents import SourceDocument
 from app.utils.hashing import sha256_text
 
@@ -48,12 +48,15 @@ async def ingest_documents(
     indexed_files = 0
     indexed_chunks = 0
     skipped_files = 0
+    skipped_by_reason: dict[str, int] = {}
     indexed_paths: set[str] = set()
     chunk_records: list[tuple[Chunk, SourceFile]] = []
 
     for document in documents:
-        if not is_indexable_document(document):
+        skip_reason = get_document_skip_reason(document)
+        if skip_reason is not None:
             skipped_files += 1
+            skipped_by_reason[skip_reason] = skipped_by_reason.get(skip_reason, 0) + 1
             continue
 
         indexed_paths.add(document.path)
@@ -105,6 +108,7 @@ async def ingest_documents(
         "indexed_files": indexed_files,
         "indexed_chunks": indexed_chunks,
         "skipped_files": skipped_files,
+        "skipped_by_reason": skipped_by_reason,
         "repository_id": repository.id,
         "chunks": chunks,
     }

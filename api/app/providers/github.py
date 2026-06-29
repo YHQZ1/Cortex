@@ -6,7 +6,7 @@ import httpx
 
 from app.config import Settings
 from app.pipeline.documents import SourceDocument
-from app.pipeline.filtering import ALLOWED_EXTENSIONS, SKIPPED_FILENAMES, SKIPPED_PATH_PARTS
+from app.pipeline.filtering import get_path_skip_reason
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,17 @@ class FetchedRepository:
     name: str
     default_branch: str
     documents: list[SourceDocument]
+    diagnostics: "GitHubFetchDiagnostics"
+
+
+@dataclass(frozen=True)
+class GitHubFetchDiagnostics:
+    discovered_files: int
+    candidate_files: int
+    fetched_documents: int
+    ignored_by_reason: dict[str, int]
+    fetch_skipped_files: int = 0
+    truncated_files: int = 0
 
 
 class GitHubProviderError(RuntimeError):
@@ -41,13 +52,24 @@ class GitHubProvider:
                 params={"recursive": "1"},
             )
 
-        candidate_paths = [
+        blob_paths = [
             item["path"]
             for item in tree_payload.get("tree", [])
-            if item.get("type") == "blob" and self._is_candidate_path(item.get("path", ""))
-        ][: self._settings.github_max_files_per_repo]
+            if item.get("type") == "blob"
+        ]
+        candidate_paths: list[str] = []
+        ignored_by_reason: dict[str, int] = {}
+        for path in blob_paths:
+            reason = get_path_skip_reason(path)
+            if reason is None:
+                candidate_paths.append(path)
+            else:
+                ignored_by_reason[reason] = ignored_by_reason.get(reason, 0) + 1
 
-        documents = await self._fetch_documents(
+        truncated_files = max(0, len(candidate_paths) - self._settings.github_max_files_per_repo)
+        candidate_paths = candidate_paths[: self._settings.github_max_files_per_repo]
+
+        documents, fetch_skipped_files = await self._fetch_documents(
             owner=owner,
             repo=repo,
             branch=default_branch,
@@ -59,6 +81,14 @@ class GitHubProvider:
             name=repo,
             default_branch=default_branch,
             documents=documents,
+            diagnostics=GitHubFetchDiagnostics(
+                discovered_files=len(blob_paths),
+                candidate_files=len(candidate_paths),
+                fetched_documents=len(documents),
+                ignored_by_reason=ignored_by_reason,
+                fetch_skipped_files=fetch_skipped_files,
+                truncated_files=truncated_files,
+            ),
         )
 
     async def _fetch_documents(
@@ -68,27 +98,30 @@ class GitHubProvider:
         repo: str,
         branch: str,
         paths: list[str],
-    ) -> list[SourceDocument]:
+    ) -> tuple[list[SourceDocument], int]:
         async with httpx.AsyncClient(
             headers=self._headers(),
             timeout=self._settings.github_fetch_timeout_seconds,
             follow_redirects=True,
         ) as client:
             documents: list[SourceDocument] = []
+            skipped_files = 0
             for path in paths:
                 url = self._raw_file_url(owner=owner, repo=repo, branch=branch, path=path)
                 response = await client.get(url)
                 if response.status_code in {400, 404}:
+                    skipped_files += 1
                     continue
                 response.raise_for_status()
 
                 content_type = response.headers.get("content-type", "")
                 if "text" not in content_type and "json" not in content_type:
+                    skipped_files += 1
                     continue
 
                 documents.append(SourceDocument(path=path, content=response.text))
 
-        return documents
+        return documents, skipped_files
 
     def _raw_file_url(self, *, owner: str, repo: str, branch: str, path: str) -> str:
         encoded_path = "/".join(quote(part) for part in PurePosixPath(path).parts)
@@ -123,11 +156,3 @@ class GitHubProvider:
         if len(parts) != 2 or not all(parts):
             raise GitHubProviderError("GitHub source_ref must use the format 'owner/repo'.")
         return parts[0], parts[1]
-
-    def _is_candidate_path(self, path_value: str) -> bool:
-        path = PurePosixPath(path_value)
-        if any(part in SKIPPED_PATH_PARTS for part in path.parts):
-            return False
-        if path.name in SKIPPED_FILENAMES:
-            return False
-        return path.suffix.lower() in ALLOWED_EXTENSIONS

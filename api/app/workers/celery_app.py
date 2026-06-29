@@ -7,7 +7,7 @@ from app.config import get_settings
 from app.db.session import async_session
 from app.models.ingestion_job import IngestionSourceType
 from app.pipeline.sample_source import get_sample_documents
-from app.providers.github import GitHubProvider
+from app.providers.github import GitHubFetchDiagnostics, GitHubProvider
 from app.repositories.indexed_content import ingest_documents
 from app.repositories.ingestion_jobs import (
     get_ingestion_job,
@@ -55,6 +55,7 @@ async def _process_ingestion_job(job_id: UUID) -> str:
         repository_name = source_ref.rsplit("/", 1)[-1]
         default_branch = None
         documents = get_sample_documents()
+        github_diagnostics: GitHubFetchDiagnostics | None = None
 
         if source_type == IngestionSourceType.GITHUB.value and source_ref != "sample/repository":
             fetched_repository = await GitHubProvider(settings).fetch_repository(source_ref)
@@ -62,6 +63,7 @@ async def _process_ingestion_job(job_id: UUID) -> str:
             repository_name = fetched_repository.name
             default_branch = fetched_repository.default_branch
             documents = fetched_repository.documents
+            github_diagnostics = fetched_repository.diagnostics
 
         async with async_session() as session:
             stats = await ingest_documents(
@@ -83,12 +85,12 @@ async def _process_ingestion_job(job_id: UUID) -> str:
             await mark_ingestion_job_succeeded(
                 session,
                 job_id,
-                message=(
-                    f"Ingested {source_type} source {source_ref}: "
-                    f"{stats['indexed_files']} files, "
-                    f"{stats['indexed_chunks']} chunks, "
-                    f"{stats['skipped_files']} skipped, "
-                    f"{vector_count} vectors indexed."
+                message=_build_success_message(
+                    source_type=source_type,
+                    source_ref=source_ref,
+                    stats=stats,
+                    vector_count=vector_count,
+                    github_diagnostics=github_diagnostics,
                 ),
             )
         return "succeeded"
@@ -100,3 +102,47 @@ async def _process_ingestion_job(job_id: UUID) -> str:
                 message=f"Ingestion failed: {type(exc).__name__}",
             )
         raise
+
+
+def _build_success_message(
+    *,
+    source_type: str,
+    source_ref: str,
+    stats: dict,
+    vector_count: int,
+    github_diagnostics: GitHubFetchDiagnostics | None,
+) -> str:
+    parts = [f"Ingested {source_type} source {source_ref}"]
+
+    if github_diagnostics is not None:
+        ignored_files = sum(github_diagnostics.ignored_by_reason.values())
+        parts.append(
+            f"discovered {github_diagnostics.discovered_files} files, "
+            f"{github_diagnostics.candidate_files} candidates, "
+            f"{ignored_files} ignored"
+        )
+        reason_summary = _format_reason_counts(github_diagnostics.ignored_by_reason)
+        if reason_summary:
+            parts.append(f"ignored reasons: {reason_summary}")
+        if github_diagnostics.truncated_files:
+            parts.append(f"{github_diagnostics.truncated_files} candidates not fetched due to limit")
+        if github_diagnostics.fetch_skipped_files:
+            parts.append(f"{github_diagnostics.fetch_skipped_files} raw files skipped during fetch")
+
+    parts.append(
+        f"indexed {stats['indexed_files']} files, "
+        f"{stats['indexed_chunks']} chunks, "
+        f"{stats['skipped_files']} post-fetch skipped, "
+        f"{vector_count} vectors indexed"
+    )
+    post_fetch_summary = _format_reason_counts(stats.get("skipped_by_reason", {}))
+    if post_fetch_summary:
+        parts.append(f"post-fetch skip reasons: {post_fetch_summary}")
+
+    return ". ".join(parts) + "."
+
+
+def _format_reason_counts(reason_counts: dict[str, int]) -> str:
+    return ", ".join(
+        f"{count} {reason}" for reason, count in sorted(reason_counts.items())
+    )

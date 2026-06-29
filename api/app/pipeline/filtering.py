@@ -75,28 +75,43 @@ LANGUAGE_BY_EXTENSION = {
 }
 
 
-def is_indexable_document(document: SourceDocument) -> bool:
-    path = PurePosixPath(document.path)
+def get_path_skip_reason(path_value: str) -> str | None:
+    path = PurePosixPath(path_value)
 
     if any(part in SKIPPED_PATH_PARTS for part in path.parts):
-        return False
+        return "ignored path"
 
     if path.name in SKIPPED_FILENAMES:
-        return False
+        return "lockfile"
 
     if any(path.name.endswith(suffix) for suffix in SKIPPED_SUFFIXES):
-        return False
+        return "generated file"
 
     if path.suffix.lower() not in ALLOWED_EXTENSIONS:
-        return False
+        return "unsupported extension"
+
+    return None
+
+
+def get_document_skip_reason(document: SourceDocument) -> str | None:
+    path_reason = get_path_skip_reason(document.path)
+    if path_reason is not None:
+        return path_reason
 
     if len(document.content.encode("utf-8")) > MAX_TEXT_FILE_BYTES:
-        return False
+        return "too large"
 
     if "\x00" in document.content:
-        return False
+        return "binary content"
 
-    return bool(document.content.strip())
+    if not document.content.strip():
+        return "empty file"
+
+    return None
+
+
+def is_indexable_document(document: SourceDocument) -> bool:
+    return get_document_skip_reason(document) is None
 
 
 def infer_language(path: str) -> str | None:
