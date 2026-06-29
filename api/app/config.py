@@ -1,0 +1,42 @@
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    app_name: str = "Cortex API"
+    app_env: Literal["local", "test", "staging", "production"] = "local"
+
+    database_url: str = Field(
+        default="postgresql+asyncpg://cortex:cortex@postgres:5432/cortex",
+        validation_alias="DATABASE_URL",
+    )
+    redis_url: str = Field(default="redis://redis:6379/0", validation_alias="REDIS_URL")
+    qdrant_url: str = Field(default="http://qdrant:6333", validation_alias="QDRANT_URL")
+    ollama_url: str = Field(
+        default="http://host.docker.internal:11434",
+        validation_alias="OLLAMA_URL",
+    )
+
+    embedding_model: str = "nomic-embed-text"
+    llm_model: str = "qwen2.5-coder:7b"
+    worker_concurrency: int = 2
+
+    readiness_timeout_seconds: float = 2.0
+
+    @property
+    def asyncpg_url(self) -> str:
+        return self.database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
