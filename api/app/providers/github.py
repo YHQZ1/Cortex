@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from pathlib import PurePosixPath
 from urllib.parse import quote
 
@@ -36,8 +37,14 @@ class GitHubProvider:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
-    async def fetch_repository(self, source_ref: str) -> FetchedRepository:
+    async def fetch_repository(
+        self,
+        source_ref: str,
+        progress_callback: Callable[[str, int, int], Awaitable[None]] | None = None,
+    ) -> FetchedRepository:
         owner, repo = self._parse_source_ref(source_ref)
+        if progress_callback is not None:
+            await progress_callback("fetching repository metadata", 0, 1)
 
         async with httpx.AsyncClient(
             base_url=self._settings.github_api_url,
@@ -51,6 +58,8 @@ class GitHubProvider:
                 f"/repos/{owner}/{repo}/git/trees/{quote(default_branch)}",
                 params={"recursive": "1"},
             )
+        if progress_callback is not None:
+            await progress_callback("filtering repository files", 0, 1)
 
         blob_paths = [
             item["path"]
@@ -68,12 +77,15 @@ class GitHubProvider:
 
         truncated_files = max(0, len(candidate_paths) - self._settings.github_max_files_per_repo)
         candidate_paths = candidate_paths[: self._settings.github_max_files_per_repo]
+        if progress_callback is not None:
+            await progress_callback("fetching files", 0, len(candidate_paths))
 
         documents, fetch_skipped_files = await self._fetch_documents(
             owner=owner,
             repo=repo,
             branch=default_branch,
             paths=candidate_paths,
+            progress_callback=progress_callback,
         )
 
         return FetchedRepository(
@@ -98,6 +110,7 @@ class GitHubProvider:
         repo: str,
         branch: str,
         paths: list[str],
+        progress_callback: Callable[[str, int, int], Awaitable[None]] | None = None,
     ) -> tuple[list[SourceDocument], int]:
         async with httpx.AsyncClient(
             headers=self._headers(),
@@ -106,20 +119,26 @@ class GitHubProvider:
         ) as client:
             documents: list[SourceDocument] = []
             skipped_files = 0
-            for path in paths:
+            for index, path in enumerate(paths, start=1):
                 url = self._raw_file_url(owner=owner, repo=repo, branch=branch, path=path)
                 response = await client.get(url)
                 if response.status_code in {400, 404}:
                     skipped_files += 1
+                    if progress_callback is not None:
+                        await progress_callback("fetching files", index, len(paths))
                     continue
                 response.raise_for_status()
 
                 content_type = response.headers.get("content-type", "")
                 if "text" not in content_type and "json" not in content_type:
                     skipped_files += 1
+                    if progress_callback is not None:
+                        await progress_callback("fetching files", index, len(paths))
                     continue
 
                 documents.append(SourceDocument(path=path, content=response.text))
+                if progress_callback is not None:
+                    await progress_callback("fetching files", index, len(paths))
 
         return documents, skipped_files
 

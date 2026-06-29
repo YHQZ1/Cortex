@@ -14,6 +14,7 @@ from app.repositories.ingestion_jobs import (
     mark_ingestion_job_failed,
     mark_ingestion_job_running,
     mark_ingestion_job_succeeded,
+    update_ingestion_job_progress,
 )
 from app.services.vector_indexing import VectorIndexingService
 
@@ -45,6 +46,7 @@ def process_ingestion_job(job_id: str) -> str:
 
 async def _process_ingestion_job(job_id: UUID) -> str:
     try:
+        progress = _progress_updater(job_id)
         async with async_session() as session:
             job = await mark_ingestion_job_running(session, job_id)
             if job is None:
@@ -58,12 +60,17 @@ async def _process_ingestion_job(job_id: UUID) -> str:
         github_diagnostics: GitHubFetchDiagnostics | None = None
 
         if source_type == IngestionSourceType.GITHUB.value and source_ref != "sample/repository":
-            fetched_repository = await GitHubProvider(settings).fetch_repository(source_ref)
+            fetched_repository = await GitHubProvider(settings).fetch_repository(
+                source_ref,
+                progress_callback=progress,
+            )
             source_ref = fetched_repository.source_ref
             repository_name = fetched_repository.name
             default_branch = fetched_repository.default_branch
             documents = fetched_repository.documents
             github_diagnostics = fetched_repository.diagnostics
+        else:
+            await progress("loading sample documents", 1, 1)
 
         async with async_session() as session:
             stats = await ingest_documents(
@@ -74,9 +81,13 @@ async def _process_ingestion_job(job_id: UUID) -> str:
                 repository_name=repository_name,
                 default_branch=default_branch,
                 documents=documents,
+                progress_callback=progress,
             )
 
-        vector_count = await VectorIndexingService(settings).index_chunks(stats["chunks"])
+        vector_count = await VectorIndexingService(settings).index_chunks(
+            stats["chunks"],
+            progress_callback=progress,
+        )
 
         async with async_session() as session:
             latest_job = await get_ingestion_job(session, job_id)
@@ -102,6 +113,21 @@ async def _process_ingestion_job(job_id: UUID) -> str:
                 message=f"Ingestion failed: {type(exc).__name__}",
             )
         raise
+
+
+def _progress_updater(job_id: UUID):
+    async def update(stage: str, current: int, total: int) -> None:
+        async with async_session() as session:
+            await update_ingestion_job_progress(
+                session,
+                job_id,
+                stage=stage,
+                current=current,
+                total=total,
+                message=f"{stage.capitalize()}: {current}/{max(1, total)}.",
+            )
+
+    return update
 
 
 def _build_success_message(

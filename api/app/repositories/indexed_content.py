@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -35,6 +36,7 @@ async def ingest_documents(
     repository_name: str,
     default_branch: str | None = None,
     documents: list[SourceDocument],
+    progress_callback: Callable[[str, int, int], Awaitable[None]] | None = None,
 ) -> dict:
     repository = await upsert_repository(
         session,
@@ -52,11 +54,13 @@ async def ingest_documents(
     indexed_paths: set[str] = set()
     chunk_records: list[tuple[Chunk, SourceFile]] = []
 
-    for document in documents:
+    for index, document in enumerate(documents, start=1):
         skip_reason = get_document_skip_reason(document)
         if skip_reason is not None:
             skipped_files += 1
             skipped_by_reason[skip_reason] = skipped_by_reason.get(skip_reason, 0) + 1
+            if progress_callback is not None:
+                await progress_callback("chunking files", index, len(documents))
             continue
 
         indexed_paths.add(document.path)
@@ -79,6 +83,8 @@ async def ingest_documents(
             indexed_chunks += 1
 
         indexed_files += 1
+        if progress_callback is not None:
+            await progress_callback("chunking files", index, len(documents))
 
     await session.flush()
 

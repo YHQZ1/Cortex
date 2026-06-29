@@ -4,7 +4,6 @@ import { AnswerPanel } from "./components/ask/AnswerPanel";
 import { AskPanel } from "./components/ask/AskPanel";
 import { AppShell } from "./components/layout/AppShell";
 import { RepositoryPanel } from "./components/repositories/RepositoryPanel";
-import { SetupStrip } from "./components/setup/SetupStrip";
 import { SourcePanel } from "./components/sources/SourcePanel";
 import { useAsk } from "./hooks/useAsk";
 import { usePersistentState } from "./hooks/usePersistentState";
@@ -58,33 +57,23 @@ function App() {
 
   return (
     <AppShell
-      repositoryCount={repositories.repositories.length}
-      repositories={repositories.repositories}
+      onRefreshSetup={() => void refreshSetupStatus()}
       selectedRepository={repositories.repository}
-      onSelectRepository={repositories.selectRepository}
+      setupLoading={setupLoading}
+      setupStatus={setupStatus}
     >
-      <SetupStrip
-        loading={setupLoading}
-        setupStatus={setupStatus}
-        onRefresh={() => void refreshSetupStatus()}
-      />
-
       {error && (
-        <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm font-medium text-red-800">
-          {error}
-        </div>
+        <div className="border-b border-bad/30 bg-bad-soft px-5 py-2.5 text-sm text-bad">{error}</div>
       )}
 
-      <div className="grid flex-1 gap-4 p-4 xl:grid-cols-[360px_minmax(0,1fr)_360px]">
-        <aside className="space-y-4">
+      <div className="grid h-full min-h-0 lg:grid-cols-[240px_minmax(0,1fr)_320px]">
+        <aside className="min-h-0 overflow-hidden border-b border-line lg:border-b-0 lg:border-r">
           <RepositoryPanel
             action={repositories.action}
             job={repositories.job}
             manualMode={repositories.manualMode}
             manualRepository={repositories.manualRepository}
-            owner={repositories.owner}
-            ownerRepositories={repositories.ownerRepositories}
-            owners={repositories.owners}
+            repositories={repositories.repositories}
             repository={repositories.repository}
             selectedRepository={repositories.selectedRepository}
             onDelete={() => {
@@ -107,7 +96,6 @@ function App() {
               setPreview(null);
               void repositories.reindexSelectedRepository();
             }}
-            onSelectOwner={repositories.selectOwner}
             onSelectRepository={(sourceRef) => {
               repositories.selectRepository(sourceRef);
               setPreview(null);
@@ -115,7 +103,7 @@ function App() {
           />
         </aside>
 
-        <section className="min-w-0 space-y-4">
+        <section className="flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden border-b border-line p-5 lg:border-b-0">
           <AskPanel
             asking={ask.asking}
             limit={ask.limit}
@@ -128,6 +116,7 @@ function App() {
             onModeChange={ask.setMode}
             onQuestionChange={ask.setQuestion}
             onRestoreQuestion={ask.restoreQuestion}
+            onStop={ask.stop}
           />
           <AnswerPanel
             answer={ask.answer}
@@ -140,7 +129,7 @@ function App() {
           />
         </section>
 
-        <aside>
+        <aside className="min-h-0 overflow-hidden border-line lg:border-l">
           <SourcePanel
             mode={ask.mode}
             preview={preview}

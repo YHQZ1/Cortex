@@ -1,4 +1,4 @@
-import { FileText, Loader2, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 
 import { AskMode, AskResponse } from "../../lib/api";
 
@@ -10,62 +10,42 @@ type AnswerPanelProps = {
 };
 
 export function AnswerPanel({ answer, asking, mode, onClear }: AnswerPanelProps) {
+  if (!answer) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden border border-dashed border-line text-sm font-medium text-ink-soft">
+        {mode === "repository" ? "Repository answers will appear here." : "General answers will appear here."}
+      </div>
+    );
+  }
+
   return (
-    <section className="flex min-h-[440px] flex-col rounded-lg border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div>
-          <h3 className="text-sm font-semibold">Answer</h3>
-          {answer && <p className="mt-0.5 max-w-xl truncate text-xs text-slate-500">{answer.question}</p>}
-        </div>
-        {answer && (
-          <button
-            className="rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
-            onClick={onClear}
-            title="Clear answer"
-            type="button"
-          >
-            <X size={16} />
-          </button>
-        )}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-line bg-surface">
+      <div className="flex items-center justify-between gap-3 border-b border-line-soft px-4 py-2.5">
+        <p className="truncate text-xs font-medium text-ink-soft">{answer.question}</p>
+        <button
+          className="shrink-0 text-ink-faint transition hover:text-ink"
+          onClick={onClear}
+          title="Clear answer"
+          type="button"
+        >
+          <X size={14} />
+        </button>
       </div>
 
-      <article className="flex-1 p-5">
-        {answer ? (
-          <div>
-            {asking && (
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
-                <Loader2 className="animate-spin" size={13} />
-                streaming
-              </div>
-            )}
-            {answer.answer ? (
-              <p className="whitespace-pre-wrap text-sm leading-7 text-slate-800">{answer.answer}</p>
-            ) : (
-              <LoadingState />
-            )}
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        {asking && !answer.answer && (
+          <div className="flex items-center gap-2 text-sm font-medium text-ink-soft">
+            <Loader2 className="animate-spin" size={15} />
+            thinking…
           </div>
-        ) : (
-          <EmptyState mode={mode} />
         )}
-      </article>
-    </section>
-  );
-}
-
-function LoadingState() {
-  return (
-    <div className="flex min-h-72 items-center justify-center text-sm text-slate-500">
-      <Loader2 className="mr-2 animate-spin" size={18} />
-      Thinking...
-    </div>
-  );
-}
-
-function EmptyState({ mode }: { mode: AskMode }) {
-  return (
-    <div className="flex min-h-72 flex-col items-center justify-center text-center text-sm leading-6 text-slate-500">
-      <FileText className="mb-3 text-slate-300" size={34} />
-      {mode === "repository" ? "Repository answers will appear here." : "General answers will appear here."}
+        {answer.answer && (
+          <p className="max-w-[72ch] whitespace-pre-wrap text-[15px] leading-7 text-ink">
+            {answer.answer}
+            {asking && <span className="ml-0.5 inline-block h-4 w-[2px] -translate-y-0.5 animate-pulse bg-signal" />}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

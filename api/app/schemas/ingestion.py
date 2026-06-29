@@ -23,6 +23,9 @@ class IngestionJobRead(BaseModel):
     source_type: IngestionSourceType
     source_ref: str | None
     message: str | None
+    progress_stage: str | None
+    progress_current: int
+    progress_total: int
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime

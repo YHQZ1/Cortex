@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { AskMode, AskResponse, AskSource, streamAskCortex } from "../lib/api";
 import { usePersistentState } from "./usePersistentState";
@@ -24,6 +24,7 @@ export function useAsk(onError: (message: string) => void) {
     [],
   );
   const [asking, setAsking] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   async function ask(repository: string) {
     const nextQuestion = question.trim();
@@ -33,6 +34,9 @@ export function useAsk(onError: (message: string) => void) {
 
     setAnswer({ question: nextQuestion, answer: "", sources: [] });
     setAsking(true);
+    abortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
       await streamAskCortex({
@@ -40,6 +44,7 @@ export function useAsk(onError: (message: string) => void) {
         repository: repository.trim(),
         limit,
         mode,
+        signal: abortController.signal,
         onSources: (sources: AskSource[]) => {
           setAnswer((current) => ({
             question: current?.question ?? nextQuestion,
@@ -57,8 +62,13 @@ export function useAsk(onError: (message: string) => void) {
       });
       rememberQuestion(nextQuestion, repository);
     } catch (caught) {
-      onError(toErrorMessage(caught));
+      if (!isAbortError(caught)) {
+        onError(toErrorMessage(caught));
+      }
     } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
       setAsking(false);
     }
   }
@@ -94,6 +104,12 @@ export function useAsk(onError: (message: string) => void) {
     setAnswer(null);
   }
 
+  function stop() {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setAsking(false);
+  }
+
   return {
     answer,
     ask,
@@ -108,7 +124,12 @@ export function useAsk(onError: (message: string) => void) {
     setLimit,
     setMode,
     setQuestion,
+    stop,
   };
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function toErrorMessage(error: unknown) {

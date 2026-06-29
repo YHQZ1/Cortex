@@ -47,7 +47,7 @@ export function useRepositories(onError: (message: string) => void) {
       } catch (caught) {
         onError(toErrorMessage(caught));
       }
-    }, 2500);
+    }, 1000);
 
     return () => window.clearInterval(interval);
   }, [activeJob, job, onError, setJob]);

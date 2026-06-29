@@ -1,4 +1,5 @@
-import { Loader2, MessageSquareText, SlidersHorizontal } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
+import type { KeyboardEvent } from "react";
 
 import { AskMode } from "../../lib/api";
 import { RecentQuestion } from "../../hooks/useAsk";
@@ -15,6 +16,7 @@ type AskPanelProps = {
   onModeChange: (mode: AskMode) => void;
   onQuestionChange: (question: string) => void;
   onRestoreQuestion: (question: RecentQuestion) => void;
+  onStop: () => void;
 };
 
 export function AskPanel({
@@ -29,94 +31,86 @@ export function AskPanel({
   onModeChange,
   onQuestionChange,
   onRestoreQuestion,
+  onStop,
 }: AskPanelProps) {
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <MessageSquareText size={18} />
-          <h3 className="text-sm font-semibold">Ask</h3>
-        </div>
-        <ModeToggle mode={mode} onModeChange={onModeChange} />
-      </div>
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      onAsk();
+    }
+  }
 
-      <div className="space-y-4 p-4">
+  return (
+    <div className="border border-line bg-surface">
+      <div className="relative">
         <textarea
-          className="min-h-32 w-full resize-y rounded-md border border-slate-200 bg-slate-50 p-3 text-sm leading-6 outline-none transition focus:border-teal-600 focus:bg-white"
+          className="min-h-28 w-full resize-y bg-transparent p-4 pr-16 text-[15px] font-medium leading-6 text-ink caret-signal placeholder:text-ink-soft"
           onChange={(event) => onQuestionChange(event.target.value)}
-          placeholder={mode === "repository" ? `Ask about ${repository}` : "Ask anything"}
+          onKeyDown={handleKeyDown}
+          placeholder={mode === "repository" ? `Ask about ${repository || "a repository"}…` : "Ask anything…"}
           value={question}
         />
-
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex min-w-0 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-            <SlidersHorizontal size={16} className="shrink-0 text-slate-500" />
-            <input
-              className="w-40 accent-teal-700"
-              max="8"
-              min="1"
-              onChange={(event) => onLimitChange(Number(event.target.value))}
-              type="range"
-              value={limit}
-            />
-            <span className="w-5 text-center text-sm font-semibold text-slate-900">{limit}</span>
-          </div>
-
-          <button
-            className="inline-flex h-10 min-w-28 items-center justify-center gap-2 rounded-md bg-teal-700 px-4 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={asking || !question.trim() || (mode === "repository" && !repository.trim())}
-            onClick={onAsk}
-            type="button"
-          >
-            {asking && <Loader2 className="animate-spin" size={16} />}
-            Ask
-          </button>
-        </div>
-
-        {recentQuestions.length > 0 && (
-          <div className="border-t border-slate-100 pt-3">
-            <div className="mb-2 text-xs font-semibold uppercase text-slate-500">Recent</div>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {recentQuestions.slice(0, 5).map((item) => (
-                <button
-                  className="max-w-64 shrink-0 truncate rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-teal-500 hover:text-slate-950"
-                  key={item.id}
-                  onClick={() => onRestoreQuestion(item)}
-                  title={item.question}
-                  type="button"
-                >
-                  {item.question}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function ModeToggle({
-  mode,
-  onModeChange,
-}: {
-  mode: AskMode;
-  onModeChange: (mode: AskMode) => void;
-}) {
-  return (
-    <div className="inline-grid grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-1">
-      {(["repository", "general"] as const).map((item) => (
         <button
-          className={`h-8 rounded px-3 text-xs font-semibold capitalize transition ${
-            mode === item ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-900"
-          }`}
-          key={item}
-          onClick={() => onModeChange(item)}
+          className={`absolute bottom-3 right-3 flex size-10 items-center justify-center border shadow-sm transition ${
+            asking
+              ? "border-bad bg-bad text-white hover:bg-bad/85"
+              : "border-line bg-line-soft text-ink hover:border-signal/40 hover:bg-signal-soft"
+          } disabled:cursor-not-allowed disabled:border-line disabled:bg-line-soft disabled:text-ink-soft disabled:shadow-none`}
+          disabled={!asking && (!question.trim() || (mode === "repository" && !repository.trim()))}
+          onClick={asking ? onStop : onAsk}
+          title={asking ? "Stop generating" : "Ask (⌘ + Enter)"}
           type="button"
         >
-          {item}
+          {asking ? <Square fill="currentColor" size={14} /> : <ArrowUp size={16} />}
         </button>
-      ))}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line-soft px-4 py-2.5">
+        <div className="flex items-center gap-1 font-mono text-xs font-semibold">
+          {(["repository", "general"] as const).map((item) => (
+            <button
+              className={`px-2 py-1 transition ${
+                mode === item ? "bg-signal-soft text-signal" : "text-ink hover:bg-line-soft"
+              }`}
+              key={item}
+              onClick={() => onModeChange(item)}
+              type="button"
+            >
+              {mode === item ? "● " : "○ "}
+              {item}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs font-semibold text-ink-soft">sources</span>
+          <input
+            className="w-28 accent-signal"
+            max="8"
+            min="1"
+            onChange={(event) => onLimitChange(Number(event.target.value))}
+            type="range"
+            value={limit}
+          />
+          <span className="w-3 font-mono text-xs font-semibold text-ink">{limit}</span>
+        </div>
+      </div>
+
+      {recentQuestions.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto border-t border-line-soft px-4 py-2.5">
+          {recentQuestions.slice(0, 5).map((item) => (
+            <button
+              className="shrink-0 truncate border border-line-soft bg-surface px-2.5 py-1 text-xs font-semibold text-ink transition hover:border-signal/40 hover:bg-line-soft"
+              key={item.id}
+              onClick={() => onRestoreQuestion(item)}
+              title={item.question}
+              type="button"
+            >
+              {item.question.length > 48 ? `${item.question.slice(0, 48)}…` : item.question}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

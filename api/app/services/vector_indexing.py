@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 
 from app.config import Settings
 from app.providers.embeddings import OllamaEmbeddingProvider
@@ -12,11 +12,16 @@ class VectorIndexingService:
         self._embeddings = OllamaEmbeddingProvider(settings)
         self._vector_store = QdrantVectorStore(settings)
 
-    async def index_chunks(self, chunks: Sequence[IndexedChunk]) -> int:
+    async def index_chunks(
+        self,
+        chunks: Sequence[IndexedChunk],
+        progress_callback: Callable[[str, int, int], Awaitable[None]] | None = None,
+    ) -> int:
         if not chunks:
             return 0
 
         points = []
+        processed_chunks = 0
         for batch in _batched(chunks, size=32):
             vectors = await self._embeddings.embed_texts(chunk.content for chunk in batch)
             for chunk, vector in zip(batch, vectors, strict=True):
@@ -35,13 +40,20 @@ class VectorIndexingService:
                         "end_line": chunk.end_line,
                     }
                 )
+            processed_chunks += len(batch)
+            if progress_callback is not None:
+                await progress_callback("embedding chunks", processed_chunks, len(chunks))
 
         first_chunk = chunks[0]
+        if progress_callback is not None:
+            await progress_callback("writing vectors", 0, len(points))
         await self._vector_store.upsert_chunks(
             repository_id=first_chunk.repository_id,
             repository=first_chunk.repository,
             points=points,
         )
+        if progress_callback is not None:
+            await progress_callback("writing vectors", len(points), len(points))
         return len(points)
 
 

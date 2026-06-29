@@ -6,6 +6,9 @@ export type IngestionJob = {
   source_type: string;
   source_ref: string;
   message: string;
+  progress_stage: string | null;
+  progress_current: number;
+  progress_total: number;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -126,6 +129,7 @@ export async function streamAskCortex(params: {
   repository?: string;
   limit: number;
   mode: AskMode;
+  signal?: AbortSignal;
   onSources: (sources: AskSource[]) => void;
   onToken: (token: string) => void;
 }): Promise<void> {
@@ -140,6 +144,7 @@ export async function streamAskCortex(params: {
       limit: params.limit,
       mode: params.mode,
     }),
+    signal: params.signal,
   });
 
   if (!response.ok) {

@@ -1,4 +1,4 @@
-import { FileCode2, Loader2, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 
 import { AskMode, AskSource, ChunkPreview } from "../../lib/api";
 
@@ -11,6 +11,8 @@ type SourcePanelProps = {
   onOpenPreview: (chunkId: string) => void;
 };
 
+const MAX_SCORE_REFERENCE = 1.6;
+
 export function SourcePanel({
   mode,
   preview,
@@ -19,78 +21,110 @@ export function SourcePanel({
   onClosePreview,
   onOpenPreview,
 }: SourcePanelProps) {
+  const maxScore = Math.max(MAX_SCORE_REFERENCE, ...sources.map((source) => source.score));
+
   return (
-    <section className="rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-100 px-4 py-3">
-        <h3 className="text-sm font-semibold">Sources</h3>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="px-4 py-3.5">
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Sources</span>
       </div>
 
-      <div className="space-y-3 p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {sources.length > 0 ? (
-          sources.map((source, index) => (
+          <ul>
+            {sources.map((source) => (
+              <li key={source.chunk_id}>
+                <button
+                  className="block w-full border-t border-line-soft px-4 py-3 text-left transition first:border-t-0 hover:bg-line-soft"
+                  onClick={() => onOpenPreview(source.chunk_id)}
+                  type="button"
+                >
+                  <div className="truncate font-mono text-xs text-ink">
+                    {source.path}
+                    <span className="font-medium text-ink-soft">
+                      :{source.start_line}-{source.end_line}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <RelevanceBar maxScore={maxScore} score={source.score} />
+                    <span className="font-mono text-[11px] font-medium text-ink-soft">
+                      {source.language ?? "text"}
+                    </span>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="px-4 py-2 text-xs font-medium leading-5 text-ink-soft">
+            {mode === "repository" ? "No sources retrieved yet." : "General mode does not use sources."}
+          </p>
+        )}
+      </div>
+
+      {(preview || previewLoading) && (
+        <div className="max-h-[50%] min-h-0 shrink-0 overflow-y-auto border-t border-line bg-ink">
+          <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2.5">
+            <span className="truncate font-mono text-xs text-paper/70">
+              {preview ? `${preview.path}:${preview.start_line}-${preview.end_line}` : "loading…"}
+            </span>
             <button
-              className="w-full rounded-md border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-teal-500 hover:bg-white"
-              key={source.chunk_id}
-              onClick={() => onOpenPreview(source.chunk_id)}
+              className="shrink-0 text-paper/50 transition hover:text-paper"
+              onClick={onClosePreview}
               type="button"
             >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold">Source {index + 1}</span>
-                <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-500">
-                  {source.score.toFixed(3)}
-                </span>
-              </div>
-              <div className="break-words font-mono text-xs leading-5 text-slate-700">
-                {source.path}:{source.start_line}-{source.end_line}
-              </div>
-              <div className="mt-2 text-xs text-slate-500">
-                {source.language ?? "unknown"} · {source.repository}
-              </div>
+              <X size={14} />
             </button>
-          ))
-        ) : (
-          <div className="rounded-md border border-dashed border-slate-200 p-4 text-sm leading-6 text-slate-500">
-            {mode === "repository" ? "No sources selected yet." : "General mode has no sources."}
           </div>
-        )}
 
-        {(preview || previewLoading) && (
-          <div className="rounded-md border border-slate-200 bg-white">
-            <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-3">
-              <div className="min-w-0">
-                <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
-                  <FileCode2 size={15} />
-                  Preview
-                </div>
-                {preview && (
-                  <div className="break-words font-mono text-xs leading-5 text-slate-600">
-                    {preview.path}:{preview.start_line}-{preview.end_line}
-                  </div>
-                )}
-              </div>
-              <button
-                className="rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
-                onClick={onClosePreview}
-                type="button"
-              >
-                <X size={16} />
-              </button>
+          {previewLoading ? (
+            <div className="flex min-h-24 items-center justify-center text-sm text-paper/50">
+              <Loader2 className="mr-2 animate-spin" size={15} />
+              loading source
             </div>
-            {previewLoading ? (
-              <div className="flex min-h-32 items-center justify-center p-4 text-sm text-slate-500">
-                <Loader2 className="mr-2 animate-spin" size={16} />
-                Loading source...
-              </div>
-            ) : (
-              preview && (
-                <pre className="max-h-96 overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-5 text-slate-800">
-                  {preview.content}
-                </pre>
-              )
-            )}
-          </div>
-        )}
+          ) : (
+            preview && <CodeBlock content={preview.content} startLine={preview.start_line} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RelevanceBar({ maxScore, score }: { maxScore: number; score: number }) {
+  const ratio = Math.max(0, Math.min(1, score / maxScore));
+  const filledTicks = Math.max(1, Math.round(ratio * 5));
+
+  return (
+    <div className="flex items-center gap-1.5" title={`relevance score ${score.toFixed(3)}`}>
+      <div className="flex gap-px">
+        {Array.from({ length: 5 }, (_, index) => (
+          <span
+            className={`h-2.5 w-1 ${index < filledTicks ? "bg-signal" : "bg-line"}`}
+            key={index}
+          />
+        ))}
       </div>
-    </section>
+      <span className="font-mono text-[11px] font-medium text-ink-soft">{score.toFixed(2)}</span>
+    </div>
+  );
+}
+
+function CodeBlock({ content, startLine }: { content: string; startLine: number }) {
+  const lines = content.split("\n");
+
+  return (
+    <pre className="overflow-x-auto p-0 font-mono text-xs leading-5">
+      <code>
+        {lines.map((line, index) => (
+          <div className="flex" key={index}>
+            <span className="w-10 shrink-0 select-none px-2 text-right text-paper/30">
+              {startLine + index}
+            </span>
+            <span className="flex-1 whitespace-pre pr-4 text-paper/90">{line || " "}</span>
+          </div>
+        ))}
+      </code>
+    </pre>
   );
 }

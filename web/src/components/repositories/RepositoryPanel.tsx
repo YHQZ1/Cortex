@@ -1,12 +1,4 @@
-import {
-  CheckCircle2,
-  Clock3,
-  Github,
-  Loader2,
-  Plus,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
+import { Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { IngestionJob, RepositorySummary } from "../../lib/api";
 
@@ -15,9 +7,7 @@ type RepositoryPanelProps = {
   job: IngestionJob | null;
   manualMode: boolean;
   manualRepository: string;
-  owner: string;
-  ownerRepositories: RepositorySummary[];
-  owners: string[];
+  repositories: RepositorySummary[];
   repository: string;
   selectedRepository: RepositorySummary | null;
   onDelete: () => void;
@@ -25,7 +15,6 @@ type RepositoryPanelProps = {
   onManualModeChange: (enabled: boolean) => void;
   onManualRepositoryChange: (value: string) => void;
   onReindex: () => void;
-  onSelectOwner: (owner: string) => void;
   onSelectRepository: (sourceRef: string) => void;
 };
 
@@ -34,9 +23,7 @@ export function RepositoryPanel({
   job,
   manualMode,
   manualRepository,
-  owner,
-  ownerRepositories,
-  owners,
+  repositories,
   repository,
   selectedRepository,
   onDelete,
@@ -44,166 +31,168 @@ export function RepositoryPanel({
   onManualModeChange,
   onManualRepositoryChange,
   onReindex,
-  onSelectOwner,
   onSelectRepository,
 }: RepositoryPanelProps) {
   const jobIsWorking = job?.status === "pending" || job?.status === "running";
+  const progress = job ? getJobProgress(job) : null;
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Github size={18} />
-          <h3 className="text-sm font-semibold">Repository</h3>
-        </div>
-        {job && <StatusBadge status={job.status} />}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center justify-between px-4 py-3.5">
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+          Repositories
+        </span>
+        <button
+          className="flex items-center gap-1 bg-signal-soft px-2 py-1 font-mono text-xs font-semibold text-signal transition hover:bg-signal-soft/70"
+          onClick={() => onManualModeChange(!manualMode)}
+          type="button"
+        >
+          <Plus size={12} />
+          new
+        </button>
       </div>
 
-      <div className="space-y-4 p-4">
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <label className="text-xs font-semibold uppercase text-slate-500">GitHub source</label>
-            <button
-              className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 transition hover:text-teal-900"
-              onClick={() => onManualModeChange(!manualMode)}
-              type="button"
-            >
-              <Plus size={13} />
-              {manualMode ? "Use library" : "New repo"}
-            </button>
-          </div>
-
-          {manualMode ? (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {manualMode && (
+          <div className="px-4 pb-3">
             <input
-              className="h-11 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-teal-600 focus:bg-white"
+              autoFocus
+              className="h-10 w-full border border-line bg-surface px-3 font-mono text-xs font-semibold text-ink caret-signal placeholder:text-ink-soft focus:border-signal"
               onChange={(event) => onManualRepositoryChange(event.target.value)}
-              placeholder="owner/repo or https://github.com/owner/repo"
+              placeholder="owner/repo or github url"
               value={manualRepository}
             />
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              <select
-                className="h-11 min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-teal-600 focus:bg-white disabled:opacity-60"
-                disabled={owners.length === 0}
-                onChange={(event) => onSelectOwner(event.target.value)}
-                value={owner}
-              >
-                {owners.length === 0 ? (
-                  <option value={owner}>owner</option>
-                ) : (
-                  owners.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))
-                )}
-              </select>
-
-              <select
-                className="h-11 min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-teal-600 focus:bg-white disabled:opacity-60"
-                disabled={ownerRepositories.length === 0}
-                onChange={(event) => onSelectRepository(event.target.value)}
-                value={repository}
-              >
-                {ownerRepositories.length === 0 ? (
-                  <option value={repository}>repo</option>
-                ) : (
-                  ownerRepositories.map((item) => (
-                    <option key={item.source_ref} value={item.source_ref}>
-                      {item.name}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-          )}
-          {manualMode && manualRepository.trim() && repository !== manualRepository.trim() && (
-            <div className="mt-2 rounded-md border border-teal-100 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800">
-              Will index {repository}
-            </div>
-          )}
-        </div>
-
-        {selectedRepository && (
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <Metric label="files" value={selectedRepository.file_count} />
-              <Metric label="chunks" value={selectedRepository.chunk_count} />
-              <Metric label="branch" value={selectedRepository.default_branch ?? "main"} />
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-teal-500 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={action !== null || jobIsWorking}
-                onClick={onReindex}
-                type="button"
-              >
-                {action === "reindex" ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
-                Reindex
-              </button>
-              <button
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={action !== null || jobIsWorking}
-                onClick={onDelete}
-                type="button"
-              >
-                {action === "delete" ? <Loader2 className="animate-spin" size={14} /> : <Trash2 size={14} />}
-                Delete
-              </button>
-            </div>
+            {manualRepository.trim() && repository !== manualRepository.trim() && (
+              <div className="mt-1.5 font-mono text-[11px] font-medium text-ink-soft">
+                will resolve to <span className="font-semibold text-signal">{repository}</span>
+              </div>
+            )}
           </div>
         )}
 
+        {repositories.length > 0 ? (
+          <ul>
+            {repositories.map((item) => {
+              const selected = item.source_ref === repository;
+              return (
+                <li key={item.source_ref}>
+                  <button
+                    className={`block w-full border-l-2 px-4 py-2.5 text-left transition ${
+                      selected
+                        ? "border-signal bg-signal-soft/40"
+                        : "border-transparent hover:bg-line-soft"
+                    }`}
+                    onClick={() => onSelectRepository(item.source_ref)}
+                    type="button"
+                  >
+                    <div className="truncate text-sm font-medium text-ink">{item.name}</div>
+                    <div className="mt-0.5 truncate font-mono text-[11px] font-medium text-ink-soft">
+                      {item.source_ref} · {item.file_count}f · {item.chunk_count}c
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="px-4 py-2 text-xs font-medium leading-5 text-ink-soft">
+            Nothing indexed yet. Enter a repository above and ingest it.
+          </p>
+        )}
+      </div>
+
+      <div className="border-t border-line p-4">
         <button
-          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex h-10 w-full items-center justify-center gap-2 border border-line bg-line-soft text-sm font-bold text-ink shadow-sm transition hover:border-signal/40 hover:bg-signal-soft disabled:cursor-not-allowed disabled:border-line disabled:bg-line-soft disabled:text-ink-soft disabled:shadow-none"
           disabled={action !== null || !repository.trim() || jobIsWorking}
           onClick={onIngest}
           type="button"
         >
-          {action === "ingest" || jobIsWorking ? (
-            <Loader2 className="animate-spin" size={17} />
-          ) : (
-            <Github size={17} />
-          )}
+          {action === "ingest" || jobIsWorking ? <Loader2 className="animate-spin" size={15} /> : null}
           {selectedRepository ? "Ingest latest" : "Ingest repository"}
         </button>
 
+        {selectedRepository && (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button
+              className="flex h-8 items-center justify-center gap-1.5 border border-line bg-surface text-xs font-bold text-ink transition hover:border-ink-soft hover:bg-line-soft disabled:cursor-not-allowed disabled:text-ink-faint disabled:opacity-70"
+              disabled={action !== null || jobIsWorking}
+              onClick={onReindex}
+              type="button"
+            >
+              {action === "reindex" ? <Loader2 className="animate-spin" size={12} /> : <RefreshCw size={12} />}
+              Reindex
+            </button>
+            <button
+              className="flex h-8 items-center justify-center gap-1.5 border border-line bg-surface text-xs font-bold text-ink transition hover:border-bad hover:bg-bad-soft hover:text-bad disabled:cursor-not-allowed disabled:text-ink-faint disabled:opacity-70"
+              disabled={action !== null || jobIsWorking}
+              onClick={onDelete}
+              type="button"
+            >
+              {action === "delete" ? <Loader2 className="animate-spin" size={12} /> : <Trash2 size={12} />}
+              Delete
+            </button>
+          </div>
+        )}
+
         {job && (
-          <div className={`rounded-md border px-3 py-3 text-sm ${jobClassName(job.status)}`}>
-            <div className="mb-2 flex items-center gap-2 font-semibold">
-              {job.status === "succeeded" ? <CheckCircle2 size={16} /> : <Clock3 size={16} />}
+          <div className="mt-3 text-xs leading-5">
+            <div
+              className={`mb-1 font-mono font-medium ${
+                job.status === "succeeded"
+                  ? "text-good"
+                  : job.status === "failed"
+                    ? "text-bad"
+                    : "text-ink-soft"
+              }`}
+            >
               {job.status}
             </div>
-            <p className="leading-5">{job.message}</p>
+            {progress && (
+              <div className="mb-2">
+                <div className="mb-1 flex items-center justify-between gap-2 font-mono text-[11px] font-semibold text-ink-soft">
+                  <span className="truncate">{progress.label}</span>
+                  <span>{progress.percent}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden bg-line-soft">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      job.status === "failed" ? "bg-bad" : "bg-signal"
+                    }`}
+                    style={{ width: `${progress.percent}%` }}
+                  />
+                </div>
+                <div className="mt-1 font-mono text-[11px] font-medium text-ink-soft">
+                  {job.progress_current}/{job.progress_total}
+                </div>
+              </div>
+            )}
+            <p className="font-medium text-ink-soft">{job.message}</p>
           </div>
         )}
       </div>
-    </section>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div>
-      <div className="truncate text-base font-semibold text-slate-950">{value}</div>
-      <div className="text-xs text-slate-500">{label}</div>
     </div>
   );
 }
 
-function StatusBadge({ status }: { status: IngestionJob["status"] }) {
-  const className =
-    status === "succeeded"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : status === "failed"
-        ? "border-red-200 bg-red-50 text-red-700"
-        : "border-blue-200 bg-blue-50 text-blue-700";
+function getJobProgress(job: IngestionJob) {
+  if (job.status === "succeeded") {
+    return { label: "complete", percent: 100 };
+  }
+  if (job.status === "failed") {
+    const percent = calculatePercent(job.progress_current, job.progress_total);
+    return { label: job.progress_stage ?? "failed", percent };
+  }
 
-  return <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}>{status}</span>;
+  return {
+    label: job.progress_stage ?? job.status,
+    percent: calculatePercent(job.progress_current, job.progress_total),
+  };
 }
 
-function jobClassName(status: IngestionJob["status"]) {
-  if (status === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  if (status === "failed") return "border-red-200 bg-red-50 text-red-800";
-  return "border-blue-200 bg-blue-50 text-blue-800";
+function calculatePercent(current: number, total: number) {
+  if (total <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round((current / total) * 100)));
 }
