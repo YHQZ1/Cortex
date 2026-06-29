@@ -1,196 +1,187 @@
 # Cortex
 
-A local RAG engine that turns your GitHub repos into a queryable knowledge base. Ask questions about your own code in natural language — get answers with file context, repo references, and actual code snippets. Runs fully offline.
+Cortex is a production-minded RAG backend for turning code repositories into a searchable knowledge base.
 
-```
-$ cortex query "how did I implement rate limiting?"
+The goal is simple: connect your source repositories, index their files, and ask questions like:
 
-> Found in: flintlk/ratelimit/limiter.go
-
-  You used a token bucket approach backed by an in-memory atomic counter
-  with a configurable refill interval. The core logic lives in Limiter.Allow()
-  which checks remaining tokens before decrementing.
-
-  [flintlk/ratelimit/limiter.go · lines 42–67]
+```text
+Where did I implement rate limiting?
+How do my services handle retries?
+Which repos use JWT authentication?
+Show me examples of my database migration pattern.
 ```
 
----
+Cortex is being built as a real backend system first: FastAPI for the API, Postgres for durable state, Redis and Celery for background jobs, Qdrant for vector search, and Ollama for local embeddings and generation.
 
-## How it works
+## Architecture
 
+The planned backend has three main parts:
+
+```text
+Client
+  |
+  v
+FastAPI API
+  |
+  |-- Postgres
+  |     durable app state, jobs, repos, files, chunks, query logs
+  |
+  |-- Redis
+  |     Celery broker, caching, rate limits, lightweight locks
+  |
+  |-- Celery workers
+  |     repository ingestion, chunking, embedding, indexing
+  |
+  |-- Qdrant
+  |     vector search over embedded code chunks
+  |
+  |-- Ollama
+        local embedding and LLM generation provider
 ```
-GitHub API
-    └── pulls READMEs + source files from all your repos
-            │
-            ▼
-    Text Splitter (LangChain)
-            │  chunks files by size with overlap
-            ▼
-    Ollama (nomic-embed-text)
-            │  converts each chunk to a vector
-            ▼
-    Qdrant (vector database)
-            │  stores vectors + metadata (repo, file, line range)
-            ▼
-    Query CLI / Web UI
-            │  embeds your question → finds top-k similar chunks
-            │  → sends context to qwen2.5-coder → returns answer
-            ▼
-         Answer
-```
 
-No cloud. No API keys. No cost.
+The API should stay lightweight. Expensive work such as repository fetching, chunking, embedding, and indexing should run in background workers.
 
----
+## Target Stack
 
-## Stack
+| Area            | Technology                                |
+| --------------- | ----------------------------------------- |
+| API             | FastAPI                                   |
+| App server      | Uvicorn                                   |
+| Database        | PostgreSQL                                |
+| ORM             | SQLAlchemy 2.x                            |
+| Migrations      | Alembic                                   |
+| Queue           | Celery                                    |
+| Broker/cache    | Redis                                     |
+| Vector database | Qdrant                                    |
+| Embeddings      | Ollama                                    |
+| Generation      | Ollama                                    |
+| RAG utilities   | LangChain, used selectively               |
+| Packaging       | uv                                        |
+| Deployment      | Docker Compose, then container deployment |
 
-| Layer            | Technology                                 |
-| ---------------- | ------------------------------------------ |
-| Backend          | FastAPI                                    |
-| Vector DB        | Qdrant                                     |
-| Embeddings       | `nomic-embed-text` via Ollama              |
-| LLM              | `qwen2.5-coder:7b` via Ollama              |
-| Text splitting   | LangChain `RecursiveCharacterTextSplitter` |
-| Frontend         | React + TypeScript + Tailwind v4           |
-| GitHub ingestion | PyGithub                                   |
-| Orchestration    | Docker Compose                             |
+LangChain may be used for focused RAG utilities such as text splitting, prompt templates, and output parsing. Cortex should still own the application architecture, job lifecycle, database state, and retrieval pipeline.
 
----
+## Local Infrastructure
 
-## Prerequisites
+### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/)
-- [Ollama](https://ollama.com/download) installed and running
-- Python 3.11+
-- Node.js 20+
-- A GitHub personal access token (read-only scope is enough)
+- Docker or Docker Desktop
+- Docker Compose
+- Ollama, when embedding/generation work begins
 
----
+### Configure Environment
 
-## Setup
-
-**1. Pull the models**
+Create a local environment file:
 
 ```bash
-ollama pull nomic-embed-text
-ollama pull qwen2.5-coder:7b
-```
-
-**2. Clone and configure**
-
-```bash
-git clone https://github.com/yourhandle/cortex
-cd cortex
 cp .env.example .env
 ```
 
-Edit `.env`:
+Important local defaults:
 
 ```env
-GITHUB_TOKEN=your_github_pat_here
-GITHUB_USERNAME=your_github_username
+POSTGRES_PORT=5433
+REDIS_PORT=6379
+QDRANT_HTTP_PORT=6333
+QDRANT_GRPC_PORT=6334
+OLLAMA_URL=http://host.docker.internal:11434
 ```
 
-**3. Start Qdrant**
+`POSTGRES_PORT` defaults to `5433` locally to avoid conflicts with an existing Postgres installation on the host machine. Inside Docker, services still connect to Postgres through `postgres:5432`.
+
+### Start Infrastructure
 
 ```bash
 docker compose up -d
 ```
 
-**4. Install backend dependencies**
+This starts:
+
+- Postgres
+- Redis
+- Qdrant
+
+Check status:
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+docker compose ps
 ```
 
-**5. Index your repos**
+Expected local ports:
+
+| Service     | Host URL                |
+| ----------- | ----------------------- |
+| Postgres    | `localhost:5433`        |
+| Redis       | `localhost:6379`        |
+| Qdrant HTTP | `http://localhost:6333` |
+| Qdrant gRPC | `localhost:6334`        |
+
+### Stop Infrastructure
 
 ```bash
-python indexer.py
+docker compose down
 ```
 
-This pulls all your public repos, chunks the files, embeds them, and stores everything in Qdrant. Takes a few minutes depending on how many repos you have.
-
-**6. Start the backend**
+To remove local volumes too:
 
 ```bash
-uvicorn main:app --reload --port 8000
+docker compose down -v
 ```
 
-**7. Start the frontend**
+## Application Services
+
+The future API and worker services are already represented in `docker-compose.yml`, but they are behind the `app` profile because the backend application code has not been scaffolded yet.
+
+Once the API exists, the full stack will run with:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+docker compose --profile app up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+That will start:
 
----
+- `api`
+- `worker`
+- `postgres`
+- `redis`
+- `qdrant`
 
-## CLI
+## Planned Repository Structure
 
-```bash
-cd backend
-python cli.py query "where did I use exponential backoff?"
-python cli.py query "what's my pattern for gRPC error handling?"
-python cli.py reindex --repo flintlk/ratelimit
-```
+The project will start small and grow as the backend earns more structure.
 
----
-
-## Project structure
-
-```
+```text
 cortex/
-├── backend/
-│   ├── main.py              # FastAPI app
-│   ├── indexer.py           # GitHub ingestion + embedding pipeline
-│   ├── retriever.py         # Qdrant query logic
-│   ├── cli.py               # CLI entrypoint
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── components/
-│   │   └── api/
-│   └── package.json
+├── api/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── config.py
+│   │   ├── routes/
+│   │   ├── schemas/
+│   │   ├── services/
+│   │   ├── providers/
+│   │   ├── db/
+│   │   └── workers/
+│   ├── tests/
+│   ├── Dockerfile
+│   └── pyproject.toml
 ├── docker-compose.yml
-└── .env.example
+├── .env.example
+└── README.md
 ```
 
----
+CLI and web UI can be added later, after the backend ingestion and retrieval flow is solid.
 
-## Configuration
+## Design Principles
 
-| Variable          | Default                  | Description                |
-| ----------------- | ------------------------ | -------------------------- |
-| `GITHUB_TOKEN`    | —                        | GitHub PAT (read scope)    |
-| `GITHUB_USERNAME` | —                        | Your GitHub handle         |
-| `QDRANT_HOST`     | `localhost`              | Qdrant host                |
-| `QDRANT_PORT`     | `6333`                   | Qdrant port                |
-| `OLLAMA_HOST`     | `http://localhost:11434` | Ollama base URL            |
-| `EMBED_MODEL`     | `nomic-embed-text`       | Embedding model            |
-| `LLM_MODEL`       | `qwen2.5-coder:7b`       | Generation model           |
-| `TOP_K`           | `5`                      | Chunks retrieved per query |
-
----
-
-## Reindexing
-
-Cortex doesn't auto-sync. Run the indexer manually when you want to pull in new repos or changes:
-
-```bash
-python indexer.py              # full reindex
-python indexer.py --repo REPO  # single repo
-```
-
----
+- Keep the API request lifecycle fast.
+- Run ingestion and indexing through background jobs.
+- Store canonical metadata in Postgres.
+- Store vectors and searchable payloads in Qdrant.
+- Make ingestion incremental with file hashes and commit tracking.
+- Keep provider boundaries explicit for GitHub, embeddings, LLMs, and vector storage.
+- Use LangChain as a utility, not as the whole application architecture.
+- Prefer observable, testable pipeline steps over hidden chains.
 
 ## License
 
