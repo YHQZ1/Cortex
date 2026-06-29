@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,32 @@ from app.repositories.search import (
     merge_search_results,
 )
 from app.schemas.ask import AskResponse, AskSource
+
+SUBJECT_STOPWORDS = {
+    "about",
+    "code",
+    "codebase",
+    "does",
+    "explain",
+    "handle",
+    "handles",
+    "how",
+    "project",
+    "repo",
+    "repository",
+    "tell",
+    "the",
+    "this",
+    "what",
+    "where",
+    "which",
+}
+
+RELEVANCE_ALIASES = {
+    "queue": {"queue", "queued", "queuing", "queueing", "celery", "redis", "broker", "worker", "task"},
+    "queuing": {"queue", "queued", "queuing", "queueing", "celery", "redis", "broker", "worker", "task"},
+    "queueing": {"queue", "queued", "queuing", "queueing", "celery", "redis", "broker", "worker", "task"},
+}
 
 
 class RagService:
@@ -40,6 +67,13 @@ class RagService:
             return AskResponse(
                 question=question,
                 answer="I could not find relevant indexed context for that question.",
+                sources=[],
+            )
+
+        if not _is_context_relevant(question, chunks):
+            return AskResponse(
+                question=question,
+                answer=_irrelevant_context_answer(question, repository),
                 sources=[],
             )
 
@@ -78,6 +112,12 @@ class RagService:
                 "token",
                 content="I could not find relevant indexed context for that question.",
             )
+            yield _stream_event("done")
+            return
+
+        if not _is_context_relevant(question, chunks):
+            yield _stream_event("sources", sources=[])
+            yield _stream_event("token", content=_irrelevant_context_answer(question, repository))
             yield _stream_event("done")
             return
 
@@ -149,6 +189,36 @@ def _format_context(chunks: list) -> str:
             )
         )
     return "\n\n---\n\n".join(sections)
+
+
+def _is_context_relevant(question: str, chunks: list) -> bool:
+    subject_terms = _extract_subject_terms(question)
+    if not subject_terms:
+        return True
+
+    context = " ".join(f"{chunk.path} {chunk.content}" for chunk in chunks).lower()
+    return any(term in context for term in subject_terms)
+
+
+def _extract_subject_terms(question: str) -> set[str]:
+    raw_terms = {
+        term.lower()
+        for term in re.findall(r"[a-zA-Z0-9_.-]+", question)
+        if len(term) >= 3 and term.lower() not in SUBJECT_STOPWORDS
+    }
+    expanded = set(raw_terms)
+    for term in raw_terms:
+        expanded.update(RELEVANCE_ALIASES.get(term, set()))
+    return expanded
+
+
+def _irrelevant_context_answer(question: str, repository: str | None) -> str:
+    scope = f" in {repository}" if repository else " in the indexed repositories"
+    return (
+        f"I could not find relevant indexed context for this question{scope}. "
+        "Cortex answers from repository context, so ask about something present in the indexed codebase "
+        "or ingest a repository that contains this topic."
+    )
 
 
 def _stream_event(event_type: str, **payload) -> str:
