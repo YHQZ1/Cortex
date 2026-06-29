@@ -20,6 +20,7 @@ async def ingest_documents(
     source_type: str,
     source_ref: str,
     repository_name: str,
+    default_branch: str | None = None,
     documents: list[SourceDocument],
 ) -> dict[str, int]:
     repository = await upsert_repository(
@@ -27,18 +28,21 @@ async def ingest_documents(
         source_type=source_type,
         source_ref=source_ref,
         name=repository_name,
+        default_branch=default_branch,
     )
     chunker = DocumentChunker()
 
     indexed_files = 0
     indexed_chunks = 0
     skipped_files = 0
+    indexed_paths: set[str] = set()
 
     for document in documents:
         if not is_indexable_document(document):
             skipped_files += 1
             continue
 
+        indexed_paths.add(document.path)
         source_file = await upsert_source_file(session, repository_id=repository.id, document=document)
         await session.execute(delete(Chunk).where(Chunk.source_file_id == source_file.id))
 
@@ -59,6 +63,11 @@ async def ingest_documents(
 
         indexed_files += 1
 
+    stale_files_query = delete(SourceFile).where(SourceFile.repository_id == repository.id)
+    if indexed_paths:
+        stale_files_query = stale_files_query.where(SourceFile.path.not_in(indexed_paths))
+    await session.execute(stale_files_query)
+
     repository.last_indexed_at = datetime.now(UTC)
     await session.commit()
 
@@ -75,6 +84,7 @@ async def upsert_repository(
     source_type: str,
     source_ref: str,
     name: str,
+    default_branch: str | None,
 ) -> Repository:
     result = await session.execute(
         select(Repository).where(
@@ -85,11 +95,17 @@ async def upsert_repository(
     repository = result.scalar_one_or_none()
 
     if repository is None:
-        repository = Repository(source_type=source_type, source_ref=source_ref, name=name)
+        repository = Repository(
+            source_type=source_type,
+            source_ref=source_ref,
+            name=name,
+            default_branch=default_branch,
+        )
         session.add(repository)
         await session.flush()
     else:
         repository.name = name
+        repository.default_branch = default_branch
 
     return repository
 

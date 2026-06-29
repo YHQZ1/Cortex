@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text"
     llm_model: str = "qwen2.5-coder:7b"
     worker_concurrency: int = 2
+    github_token: str | None = None
+    github_api_url: str = "https://api.github.com"
+    github_raw_url: str = "https://raw.githubusercontent.com"
+    github_fetch_timeout_seconds: float = 15.0
+    github_max_files_per_repo: int = 500
 
     readiness_timeout_seconds: float = 2.0
 
