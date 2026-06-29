@@ -43,13 +43,18 @@ async def mark_ingestion_job_running(session: AsyncSession, job_id: UUID) -> Ing
     return job
 
 
-async def mark_ingestion_job_succeeded(session: AsyncSession, job_id: UUID) -> IngestionJob | None:
+async def mark_ingestion_job_succeeded(
+    session: AsyncSession,
+    job_id: UUID,
+    *,
+    message: str = "Ingestion completed.",
+) -> IngestionJob | None:
     job = await get_ingestion_job(session, job_id)
     if job is None:
         return None
 
     job.status = IngestionJobStatus.SUCCEEDED.value
-    job.message = "Placeholder ingestion completed."
+    job.message = message
     job.finished_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(job)

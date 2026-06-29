@@ -5,7 +5,10 @@ from sqlalchemy import engine_from_config, pool
 
 from app.config import get_settings
 from app.db.base import Base
+from app.models.chunk import Chunk
 from app.models.ingestion_job import IngestionJob
+from app.models.repository import Repository
+from app.models.source_file import SourceFile
 
 config = context.config
 

@@ -1,0 +1,130 @@
+from datetime import UTC, datetime
+from uuid import UUID
+
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.chunk import Chunk
+from app.models.repository import Repository
+from app.models.source_file import SourceFile
+from app.pipeline.chunking import DocumentChunker
+from app.pipeline.filtering import infer_language, is_indexable_document
+from app.pipeline.documents import SourceDocument
+from app.utils.hashing import sha256_text
+
+
+async def ingest_documents(
+    session: AsyncSession,
+    *,
+    ingestion_job_id: UUID,
+    source_type: str,
+    source_ref: str,
+    repository_name: str,
+    documents: list[SourceDocument],
+) -> dict[str, int]:
+    repository = await upsert_repository(
+        session,
+        source_type=source_type,
+        source_ref=source_ref,
+        name=repository_name,
+    )
+    chunker = DocumentChunker()
+
+    indexed_files = 0
+    indexed_chunks = 0
+    skipped_files = 0
+
+    for document in documents:
+        if not is_indexable_document(document):
+            skipped_files += 1
+            continue
+
+        source_file = await upsert_source_file(session, repository_id=repository.id, document=document)
+        await session.execute(delete(Chunk).where(Chunk.source_file_id == source_file.id))
+
+        for chunk in chunker.split(document.content):
+            session.add(
+                Chunk(
+                    repository_id=repository.id,
+                    source_file_id=source_file.id,
+                    ingestion_job_id=ingestion_job_id,
+                    ordinal=chunk.ordinal,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    content=chunk.content,
+                    content_hash=sha256_text(chunk.content),
+                )
+            )
+            indexed_chunks += 1
+
+        indexed_files += 1
+
+    repository.last_indexed_at = datetime.now(UTC)
+    await session.commit()
+
+    return {
+        "indexed_files": indexed_files,
+        "indexed_chunks": indexed_chunks,
+        "skipped_files": skipped_files,
+    }
+
+
+async def upsert_repository(
+    session: AsyncSession,
+    *,
+    source_type: str,
+    source_ref: str,
+    name: str,
+) -> Repository:
+    result = await session.execute(
+        select(Repository).where(
+            Repository.source_type == source_type,
+            Repository.source_ref == source_ref,
+        )
+    )
+    repository = result.scalar_one_or_none()
+
+    if repository is None:
+        repository = Repository(source_type=source_type, source_ref=source_ref, name=name)
+        session.add(repository)
+        await session.flush()
+    else:
+        repository.name = name
+
+    return repository
+
+
+async def upsert_source_file(
+    session: AsyncSession,
+    *,
+    repository_id: UUID,
+    document: SourceDocument,
+) -> SourceFile:
+    result = await session.execute(
+        select(SourceFile).where(
+            SourceFile.repository_id == repository_id,
+            SourceFile.path == document.path,
+        )
+    )
+    source_file = result.scalar_one_or_none()
+    content_hash = sha256_text(document.content)
+    size_bytes = len(document.content.encode("utf-8"))
+
+    if source_file is None:
+        source_file = SourceFile(
+            repository_id=repository_id,
+            path=document.path,
+            language=infer_language(document.path),
+            content_hash=content_hash,
+            size_bytes=size_bytes,
+            last_indexed_at=datetime.now(UTC),
+        )
+        session.add(source_file)
+        await session.flush()
+    else:
+        source_file.language = infer_language(document.path)
+        source_file.content_hash = content_hash
+        source_file.size_bytes = size_bytes
+        source_file.last_indexed_at = datetime.now(UTC)
+
+    return source_file
