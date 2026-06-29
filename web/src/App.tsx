@@ -1,7 +1,7 @@
 import { Brain, CheckCircle2, Clock3, Github, Loader2, MessageSquareText, SearchCode } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { AskResponse, IngestionJob, askCortex, createIngestion, getIngestion } from "./lib/api";
+import { AskResponse, IngestionJob, createIngestion, getIngestion, streamAskCortex } from "./lib/api";
 
 const DEFAULT_REPOSITORY = "YHQZ1/ESX";
 
@@ -55,15 +55,28 @@ function App() {
 
   async function handleAsk() {
     setError(null);
+    setAnswer({ question: question.trim(), answer: "", sources: [] });
     setAsking(true);
     try {
-      setAnswer(
-        await askCortex({
-          question: question.trim(),
-          repository: repository.trim(),
-          limit,
-        }),
-      );
+      await streamAskCortex({
+        question: question.trim(),
+        repository: repository.trim(),
+        limit,
+        onSources: (sources) => {
+          setAnswer((current) => ({
+            question: current?.question ?? question.trim(),
+            answer: current?.answer ?? "",
+            sources,
+          }));
+        },
+        onToken: (token) => {
+          setAnswer((current) => ({
+            question: current?.question ?? question.trim(),
+            answer: `${current?.answer ?? ""}${token}`,
+            sources: current?.sources ?? [],
+          }));
+        },
+      });
     } catch (caught) {
       setError(toErrorMessage(caught));
     } finally {
@@ -189,17 +202,32 @@ function App() {
 
             <div className="grid flex-1 gap-0 lg:grid-cols-[1fr_340px]">
               <article className="min-h-80 border-b border-[#e3ded6] p-5 lg:border-b-0 lg:border-r">
-                {asking ? (
+                {answer ? (
+                  <div>
+                    <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase text-[#697586]">
+                      <span>Answer</span>
+                      {asking && (
+                        <span className="inline-flex items-center gap-1 normal-case text-[#2f6f6d]">
+                          <Loader2 className="animate-spin" size={13} />
+                          streaming
+                        </span>
+                      )}
+                    </div>
+                    {answer.answer ? (
+                      <p className="whitespace-pre-wrap text-sm leading-7 text-[#1f2933]">
+                        {answer.answer}
+                      </p>
+                    ) : (
+                      <div className="flex min-h-80 items-center justify-center text-sm text-[#52606d]">
+                        <Loader2 className="mr-2 animate-spin" size={18} />
+                        Retrieving sources...
+                      </div>
+                    )}
+                  </div>
+                ) : asking ? (
                   <div className="flex h-full min-h-80 items-center justify-center text-sm text-[#52606d]">
                     <Loader2 className="mr-2 animate-spin" size={18} />
                     Generating with local Ollama...
-                  </div>
-                ) : answer ? (
-                  <div>
-                    <div className="mb-3 text-xs font-medium uppercase text-[#697586]">Answer</div>
-                    <p className="whitespace-pre-wrap text-sm leading-7 text-[#1f2933]">
-                      {answer.answer}
-                    </p>
                   </div>
                 ) : (
                   <div className="flex h-full min-h-80 items-center justify-center text-center text-sm leading-6 text-[#697586]">

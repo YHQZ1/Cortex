@@ -57,6 +57,61 @@ export async function askCortex(params: {
   });
 }
 
+export async function streamAskCortex(params: {
+  question: string;
+  repository?: string;
+  limit: number;
+  onSources: (sources: AskSource[]) => void;
+  onToken: (token: string) => void;
+}): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/ask/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      question: params.question,
+      repository: params.repository || null,
+      limit: params.limit,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Request failed with status ${response.status}`);
+  }
+
+  if (!response.body) {
+    throw new Error("Streaming response was empty.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
+      }
+      handleStreamEvent(JSON.parse(line), params);
+    }
+  }
+
+  if (buffer.trim()) {
+    handleStreamEvent(JSON.parse(buffer), params);
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -72,4 +127,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+function handleStreamEvent(
+  event: { type: string; sources?: AskSource[]; content?: string },
+  params: {
+    onSources: (sources: AskSource[]) => void;
+    onToken: (token: string) => void;
+  },
+) {
+  if (event.type === "sources") {
+    params.onSources(event.sources ?? []);
+  }
+  if (event.type === "token" && event.content) {
+    params.onToken(event.content);
+  }
 }
