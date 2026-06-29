@@ -45,20 +45,7 @@ class QdrantVectorStore:
     ) -> None:
         await self.ensure_collection()
         async with httpx.AsyncClient(timeout=30.0) as client:
-            delete_response = await client.post(
-                f"{self._collection_url}/points/delete",
-                json={
-                    "filter": {
-                        "must": [
-                            {
-                                "key": "repository_id",
-                                "match": {"value": str(repository_id)},
-                            }
-                        ]
-                    }
-                },
-            )
-            delete_response.raise_for_status()
+            await self._delete_repository_points(client, repository_id)
 
             if not points:
                 return
@@ -85,6 +72,11 @@ class QdrantVectorStore:
                 },
             )
             upsert_response.raise_for_status()
+
+    async def delete_repository(self, repository_id: UUID) -> None:
+        await self.ensure_collection()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await self._delete_repository_points(client, repository_id)
 
     async def search(
         self,
@@ -119,3 +111,23 @@ class QdrantVectorStore:
             for item in results
             if item.get("payload", {}).get("chunk_id") is not None
         ]
+
+    async def _delete_repository_points(
+        self,
+        client: httpx.AsyncClient,
+        repository_id: UUID,
+    ) -> None:
+        delete_response = await client.post(
+            f"{self._collection_url}/points/delete",
+            json={
+                "filter": {
+                    "must": [
+                        {
+                            "key": "repository_id",
+                            "match": {"value": str(repository_id)},
+                        }
+                    ]
+                }
+            },
+        )
+        delete_response.raise_for_status()

@@ -7,7 +7,9 @@ import {
   Info,
   Loader2,
   MessageSquareText,
+  RefreshCw,
   SearchCode,
+  Trash2,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -20,10 +22,12 @@ import {
   RepositorySummary,
   SetupStatus,
   createIngestion,
+  deleteRepository,
   getChunkPreview,
   getIngestion,
   getSetupStatus,
   listRepositories,
+  reindexRepository,
   streamAskCortex,
 } from "./lib/api";
 
@@ -45,6 +49,7 @@ function App() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [ingesting, setIngesting] = useState(false);
   const [asking, setAsking] = useState(false);
+  const [repoActionLoading, setRepoActionLoading] = useState<"reindex" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const activeJob = job?.status === "pending" || job?.status === "running";
@@ -142,6 +147,56 @@ function App() {
       setError(toErrorMessage(caught));
     } finally {
       setIngesting(false);
+    }
+  }
+
+  async function handleReindex() {
+    if (!selectedRepository) {
+      return;
+    }
+
+    setError(null);
+    setAnswer(null);
+    setPreview(null);
+    setRepoActionLoading("reindex");
+    try {
+      setJob(await reindexRepository(selectedRepository.source_ref));
+    } catch (caught) {
+      setError(toErrorMessage(caught));
+    } finally {
+      setRepoActionLoading(null);
+    }
+  }
+
+  async function handleDeleteRepository() {
+    if (!selectedRepository) {
+      return;
+    }
+
+    const shouldDelete = window.confirm(`Delete indexed repository ${selectedRepository.source_ref}?`);
+    if (!shouldDelete) {
+      return;
+    }
+
+    setError(null);
+    setAnswer(null);
+    setPreview(null);
+    setRepoActionLoading("delete");
+    try {
+      await deleteRepository(selectedRepository.source_ref);
+      const remainingRepositories = await listRepositories();
+      setRepositories(remainingRepositories);
+      if (remainingRepositories.length > 0) {
+        selectRepository(remainingRepositories[0].source_ref);
+      } else {
+        selectRepository(DEFAULT_REPOSITORY);
+        setManualMode(true);
+      }
+      setJob(null);
+    } catch (caught) {
+      setError(toErrorMessage(caught));
+    } finally {
+      setRepoActionLoading(null);
     }
   }
 
@@ -306,11 +361,41 @@ function App() {
               )}
 
               {selectedRepository && (
-                <div className="mt-3 rounded-md border border-[#e3ded6] bg-[#faf9f6] px-3 py-2 text-xs leading-5 text-[#52606d]">
-                  {selectedRepository.file_count} files · {selectedRepository.chunk_count} chunks
-                  {selectedRepository.default_branch
-                    ? ` · ${selectedRepository.default_branch}`
-                    : ""}
+                <div className="mt-3 rounded-md border border-[#e3ded6] bg-[#faf9f6] p-3">
+                  <div className="text-xs leading-5 text-[#52606d]">
+                    {selectedRepository.file_count} files · {selectedRepository.chunk_count} chunks
+                    {selectedRepository.default_branch
+                      ? ` · ${selectedRepository.default_branch}`
+                      : ""}
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#c9c0b3] bg-white px-3 text-xs font-semibold text-[#334e68] transition hover:border-[#2f6f6d] hover:text-[#1f2933] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={repoActionLoading !== null}
+                      onClick={handleReindex}
+                      type="button"
+                    >
+                      {repoActionLoading === "reindex" ? (
+                        <Loader2 className="animate-spin" size={14} />
+                      ) : (
+                        <RefreshCw size={14} />
+                      )}
+                      Reindex
+                    </button>
+                    <button
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#f2b8b5] bg-white px-3 text-xs font-semibold text-[#9b1c1c] transition hover:bg-[#fff1f1] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={repoActionLoading !== null}
+                      onClick={handleDeleteRepository}
+                      type="button"
+                    >
+                      {repoActionLoading === "delete" ? (
+                        <Loader2 className="animate-spin" size={14} />
+                      ) : (
+                        <Trash2 size={14} />
+                      )}
+                      Delete
+                    </button>
+                  </div>
                 </div>
               )}
 

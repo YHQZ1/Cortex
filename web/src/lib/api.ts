@@ -82,6 +82,18 @@ export async function createIngestion(sourceRef: string): Promise<IngestionJob> 
   });
 }
 
+export async function reindexRepository(sourceRef: string): Promise<IngestionJob> {
+  return request<IngestionJob>(`/repositories/${encodeURIComponent(sourceRef)}/reindex`, {
+    method: "POST",
+  });
+}
+
+export async function deleteRepository(sourceRef: string): Promise<void> {
+  await request<void>(`/repositories/${encodeURIComponent(sourceRef)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function getIngestion(jobId: string): Promise<IngestionJob> {
   return request<IngestionJob>(`/ingestions/${jobId}`);
 }
@@ -172,6 +184,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(detail || `Request failed with status ${response.status}`);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return response.json() as Promise<T>;

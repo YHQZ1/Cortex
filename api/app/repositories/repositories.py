@@ -1,4 +1,4 @@
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chunk import Chunk
@@ -37,3 +37,26 @@ async def list_repositories(session: AsyncSession) -> list[RepositorySummary]:
         )
         for row in rows
     ]
+
+
+async def get_repository_by_source_ref(
+    session: AsyncSession,
+    source_ref: str,
+) -> Repository | None:
+    result = await session.execute(
+        select(Repository).where(Repository.source_ref == source_ref)
+    )
+    return result.scalar_one_or_none()
+
+
+async def delete_repository_by_source_ref(
+    session: AsyncSession,
+    source_ref: str,
+) -> Repository | None:
+    repository = await get_repository_by_source_ref(session, source_ref)
+    if repository is None:
+        return None
+
+    await session.execute(delete(Repository).where(Repository.id == repository.id))
+    await session.commit()
+    return repository

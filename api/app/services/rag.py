@@ -7,7 +7,11 @@ from app.config import Settings
 from app.providers.embeddings import OllamaEmbeddingProvider
 from app.providers.llm import OllamaLLMProvider
 from app.providers.vector_store import QdrantVectorStore
-from app.repositories.search import get_semantic_search_results
+from app.repositories.search import (
+    get_semantic_search_results,
+    keyword_search_chunks,
+    merge_search_results,
+)
 from app.schemas.ask import AskResponse, AskSource
 
 
@@ -25,15 +29,11 @@ class RagService:
         repository: str | None,
         limit: int,
     ) -> AskResponse:
-        query_vector = await self._embeddings.embed_text(question)
-        matches = await self._vector_store.search(
-            vector=query_vector,
+        chunks = await self._retrieve_chunks(
+            session,
+            question=question,
             repository=repository,
             limit=limit,
-        )
-        chunks = await get_semantic_search_results(
-            session,
-            scores_by_chunk_id={match.chunk_id: match.score for match in matches},
         )
 
         if not chunks:
@@ -63,15 +63,11 @@ class RagService:
         repository: str | None,
         limit: int,
     ) -> AsyncIterator[str]:
-        query_vector = await self._embeddings.embed_text(question)
-        matches = await self._vector_store.search(
-            vector=query_vector,
+        chunks = await self._retrieve_chunks(
+            session,
+            question=question,
             repository=repository,
             limit=limit,
-        )
-        chunks = await get_semantic_search_results(
-            session,
-            scores_by_chunk_id={match.chunk_id: match.score for match in matches},
         )
         sources = [_to_ask_source(chunk) for chunk in chunks]
 
@@ -92,6 +88,37 @@ class RagService:
             yield _stream_event("token", content=token)
 
         yield _stream_event("done")
+
+    async def _retrieve_chunks(
+        self,
+        session: AsyncSession,
+        *,
+        question: str,
+        repository: str | None,
+        limit: int,
+    ) -> list:
+        retrieval_limit = max(limit * 3, 12)
+        query_vector = await self._embeddings.embed_text(question)
+        matches = await self._vector_store.search(
+            vector=query_vector,
+            repository=repository,
+            limit=retrieval_limit,
+        )
+        semantic_chunks = await get_semantic_search_results(
+            session,
+            scores_by_chunk_id={match.chunk_id: match.score for match in matches},
+        )
+        keyword_chunks = await keyword_search_chunks(
+            session,
+            query=question,
+            repository=repository,
+            limit=retrieval_limit,
+        )
+        return merge_search_results(
+            semantic_results=semantic_chunks,
+            keyword_results=keyword_chunks,
+            limit=limit,
+        )
 
 
 def _to_ask_source(chunk) -> AskSource:
